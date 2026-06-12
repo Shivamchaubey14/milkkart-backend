@@ -9,6 +9,7 @@ from apps.cart.models import Cart
 
 from .models import DeliverySlot, Order, OrderItem
 from .serializers import CheckoutSerializer, DeliverySlotSerializer, OrderDetailSerializer, OrderListSerializer
+from .tasks import send_order_confirmation
 
 
 @api_view(["POST"])
@@ -85,6 +86,8 @@ def checkout(request):
             delivery_slot.save(update_fields=["booked"])
 
         cart.items.all().delete()
+
+    send_order_confirmation.delay(order.id)
 
     return Response(
         OrderDetailSerializer(order).data,
