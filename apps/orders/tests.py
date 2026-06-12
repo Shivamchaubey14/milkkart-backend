@@ -1,0 +1,262 @@
+from datetime import date, time
+from decimal import Decimal
+
+import pytest
+from django.contrib.auth import get_user_model
+from django.urls import reverse
+from rest_framework.test import APIClient
+
+from apps.addresses.models import Address
+from apps.cart.models import Cart, CartItem
+from apps.catalog.models import Category, Product
+from apps.orders.models import DeliverySlot, Order
+
+User = get_user_model()
+
+
+@pytest.fixture
+def user(db):
+    return User.objects.create_user(phone="+919876543210", name="Test User")
+
+
+@pytest.fixture
+def category(db):
+    return Category.objects.create(name="Milk")
+
+
+@pytest.fixture
+def product(category):
+    return Product.objects.create(
+        category=category,
+        name="Full Cream Milk",
+        price=Decimal("28.00"),
+        mrp=Decimal("30.00"),
+        stock=10,
+    )
+
+
+@pytest.fixture
+def product_b(category):
+    return Product.objects.create(
+        category=category,
+        name="Toned Milk",
+        price=Decimal("24.00"),
+        mrp=Decimal("26.00"),
+        stock=5,
+    )
+
+
+@pytest.fixture
+def auth_client(user):
+    client = APIClient()
+    client.force_authenticate(user=user)
+    return client
+
+
+@pytest.fixture
+def address(user):
+    return Address.objects.create(
+        user=user,
+        label="home",
+        address_line="42 Dairy Lane",
+        city="Mumbai",
+        state="Maharashtra",
+        pincode="400001",
+        is_default=True,
+    )
+
+
+@pytest.fixture
+def delivery_slot(db):
+    return DeliverySlot.objects.create(
+        date=date(2026, 6, 15),
+        start_time=time(7, 0),
+        end_time=time(9, 0),
+        capacity=20,
+    )
+
+
+@pytest.fixture
+def cart_with_items(user, product, product_b):
+    cart = Cart.objects.create(user=user)
+    CartItem.objects.create(cart=cart, product=product, quantity=2)
+    CartItem.objects.create(cart=cart, product=product_b, quantity=1)
+    return cart
+
+
+@pytest.mark.django_db
+class TestDeliverySlotModel:
+    def test_str(self, delivery_slot):
+        assert "2026-06-15" in str(delivery_slot)
+
+    def test_available(self, delivery_slot):
+        assert delivery_slot.available == 20
+
+    def test_is_full(self, delivery_slot):
+        assert not delivery_slot.is_full
+        delivery_slot.booked = 20
+        assert delivery_slot.is_full
+
+
+@pytest.mark.django_db
+class TestDeliverySlotAPI:
+    def test_list_slots(self, auth_client, delivery_slot):
+        response = auth_client.get(reverse("delivery-slot-list"))
+        assert response.status_code == 200
+        assert len(response.data) == 1
+
+    def test_filter_by_date(self, auth_client, delivery_slot):
+        response = auth_client.get(reverse("delivery-slot-list"), {"date": "2026-06-15"})
+        assert len(response.data) == 1
+
+    def test_filter_excludes_wrong_date(self, auth_client, delivery_slot):
+        response = auth_client.get(reverse("delivery-slot-list"), {"date": "2026-01-01"})
+        assert len(response.data) == 0
+
+    def test_excludes_full_slots(self, auth_client, delivery_slot):
+        delivery_slot.booked = 20
+        delivery_slot.save()
+        response = auth_client.get(reverse("delivery-slot-list"))
+        assert len(response.data) == 0
+
+
+@pytest.mark.django_db
+class TestOrderModel:
+    def test_str(self, user, address):
+        order = Order.objects.create(user=user, total=Decimal("100.00"), address=address, address_snapshot="test")
+        assert "pending" in str(order)
+
+    def test_default_status(self, user, address):
+        order = Order.objects.create(user=user, total=Decimal("100.00"), address=address, address_snapshot="test")
+        assert order.status == Order.Status.PENDING
+
+
+@pytest.mark.django_db
+class TestCheckoutAPI:
+    def test_checkout_success(self, auth_client, cart_with_items, address, product, product_b):
+        response = auth_client.post(
+            reverse("order-checkout"),
+            {"address_id": address.id},
+        )
+        assert response.status_code == 201
+        assert Decimal(response.data["total"]) == Decimal("80.00")
+        assert "42 Dairy Lane" in response.data["address_snapshot"]
+        assert len(response.data["items"]) == 2
+
+        product.refresh_from_db()
+        product_b.refresh_from_db()
+        assert product.stock == 8
+        assert product_b.stock == 4
+        assert cart_with_items.items.count() == 0
+
+    def test_checkout_with_delivery_slot(self, auth_client, cart_with_items, address, delivery_slot):
+        response = auth_client.post(
+            reverse("order-checkout"),
+            {"address_id": address.id, "delivery_slot_id": delivery_slot.id},
+        )
+        assert response.status_code == 201
+        assert response.data["delivery_slot"]["id"] == delivery_slot.id
+        delivery_slot.refresh_from_db()
+        assert delivery_slot.booked == 1
+
+    def test_checkout_full_slot_rejected(self, auth_client, cart_with_items, address, delivery_slot):
+        delivery_slot.booked = 20
+        delivery_slot.save()
+        response = auth_client.post(
+            reverse("order-checkout"),
+            {"address_id": address.id, "delivery_slot_id": delivery_slot.id},
+        )
+        assert response.status_code == 400
+        assert "full" in response.data["error"].lower()
+
+    def test_checkout_invalid_address(self, auth_client, cart_with_items):
+        response = auth_client.post(
+            reverse("order-checkout"),
+            {"address_id": 99999},
+        )
+        assert response.status_code == 400
+        assert "address" in response.data["error"].lower()
+
+    def test_checkout_other_users_address(self, auth_client, cart_with_items):
+        other_user = User.objects.create_user(phone="+919876543211", name="Other")
+        other_addr = Address.objects.create(
+            user=other_user, label="home", address_line="x", city="x", state="x", pincode="000000"
+        )
+        response = auth_client.post(reverse("order-checkout"), {"address_id": other_addr.id})
+        assert response.status_code == 400
+
+    def test_checkout_empty_cart(self, auth_client, address):
+        response = auth_client.post(reverse("order-checkout"), {"address_id": address.id})
+        assert response.status_code == 400
+        assert "empty" in response.data["error"].lower()
+
+    def test_checkout_insufficient_stock(self, auth_client, user, product, address):
+        cart = Cart.objects.create(user=user)
+        CartItem.objects.create(cart=cart, product=product, quantity=999)
+        response = auth_client.post(reverse("order-checkout"), {"address_id": address.id})
+        assert response.status_code == 400
+        assert "stock" in response.data["error"].lower()
+
+    def test_checkout_missing_address_id(self, auth_client, cart_with_items):
+        response = auth_client.post(reverse("order-checkout"), {})
+        assert response.status_code == 400
+
+    def test_checkout_unauthenticated(self):
+        client = APIClient()
+        response = client.post(reverse("order-checkout"), {"address_id": 1})
+        assert response.status_code == 401
+
+    def test_checkout_with_notes(self, auth_client, cart_with_items, address):
+        response = auth_client.post(
+            reverse("order-checkout"),
+            {"address_id": address.id, "notes": "Ring the bell"},
+        )
+        assert response.status_code == 201
+        assert response.data["notes"] == "Ring the bell"
+
+
+@pytest.mark.django_db
+class TestOrderListAPI:
+    def test_list_orders(self, auth_client, cart_with_items, address):
+        auth_client.post(reverse("order-checkout"), {"address_id": address.id})
+        response = auth_client.get(reverse("order-list"))
+        assert response.status_code == 200
+        assert len(response.data) == 1
+
+    def test_list_empty(self, auth_client):
+        response = auth_client.get(reverse("order-list"))
+        assert response.status_code == 200
+        assert len(response.data) == 0
+
+    def test_user_isolation(self, auth_client, cart_with_items, address):
+        auth_client.post(reverse("order-checkout"), {"address_id": address.id})
+        other_user = User.objects.create_user(phone="+919876543211", name="Other")
+        other_client = APIClient()
+        other_client.force_authenticate(user=other_user)
+        response = other_client.get(reverse("order-list"))
+        assert len(response.data) == 0
+
+
+@pytest.mark.django_db
+class TestOrderDetailAPI:
+    def test_detail(self, auth_client, cart_with_items, address):
+        checkout_resp = auth_client.post(reverse("order-checkout"), {"address_id": address.id})
+        order_number = checkout_resp.data["order_number"]
+        response = auth_client.get(reverse("order-detail", kwargs={"order_number": order_number}))
+        assert response.status_code == 200
+        assert len(response.data["items"]) == 2
+
+    def test_not_found(self, auth_client):
+        response = auth_client.get(
+            reverse("order-detail", kwargs={"order_number": "00000000-0000-0000-0000-000000000000"})
+        )
+        assert response.status_code == 404
+
+    def test_other_user_cannot_view(self, auth_client, cart_with_items, address):
+        checkout_resp = auth_client.post(reverse("order-checkout"), {"address_id": address.id})
+        order_number = checkout_resp.data["order_number"]
+        other_user = User.objects.create_user(phone="+919876543211", name="Other")
+        other_client = APIClient()
+        other_client.force_authenticate(user=other_user)
+        response = other_client.get(reverse("order-detail", kwargs={"order_number": order_number}))
+        assert response.status_code == 404
