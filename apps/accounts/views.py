@@ -1,0 +1,80 @@
+import logging
+
+from rest_framework import status
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework_simplejwt.tokens import RefreshToken
+
+from .models import OTP, User
+from .serializers import SendOTPSerializer, UserSerializer, VerifyOTPSerializer
+
+logger = logging.getLogger(__name__)
+
+
+@api_view(["POST"])
+@permission_classes([])
+def send_otp(request):
+    serializer = SendOTPSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    phone = serializer.validated_data["phone"]
+
+    otp = OTP.generate(phone)
+    logger.info("OTP %s generated for %s", otp.code, phone)
+
+    return Response(
+        {"message": "OTP sent successfully", "debug_otp": otp.code},
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(["POST"])
+@permission_classes([])
+def verify_otp(request):
+    serializer = VerifyOTPSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    phone = serializer.validated_data["phone"]
+    code = serializer.validated_data["code"]
+
+    try:
+        otp = OTP.objects.filter(
+            phone=phone,
+            code=code,
+            is_verified=False,
+        ).latest("created_at")
+    except OTP.DoesNotExist:
+        return Response(
+            {"error": "Invalid OTP"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if otp.is_expired:
+        return Response(
+            {"error": "OTP has expired"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    otp.is_verified = True
+    otp.save(update_fields=["is_verified"])
+
+    user, created = User.objects.get_or_create(phone=phone)
+    refresh = RefreshToken.for_user(user)
+
+    return Response(
+        {
+            "message": "OTP verified successfully",
+            "is_new_user": created,
+            "tokens": {
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
+            },
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def me(request):
+    serializer = UserSerializer(request.user)
+    return Response(serializer.data)
