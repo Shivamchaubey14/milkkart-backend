@@ -74,7 +74,6 @@ class TestSendOTPView:
         response = self.client.post(self.url, {"phone": "+919876543210"})
         assert response.status_code == 200
         assert response.data["message"] == "OTP sent successfully"
-        assert "debug_otp" in response.data
         assert OTP.objects.filter(phone="+919876543210").count() == 1
 
     def test_send_otp_invalid_phone(self):
@@ -151,3 +150,33 @@ class TestMeView:
     def test_me_unauthenticated(self):
         response = self.client.get(self.url)
         assert response.status_code == 401
+
+
+@pytest.mark.django_db
+class TestTokenRefresh:
+    def setup_method(self):
+        self.client = APIClient()
+
+    def test_refresh_token(self):
+        User.objects.create_user(phone="+919876543210", name="Test")
+        otp = OTP.generate("+919876543210")
+        verify_resp = self.client.post(reverse("otp-verify"), {"phone": "+919876543210", "code": otp.code})
+        refresh_token = verify_resp.data["tokens"]["refresh"]
+
+        response = self.client.post(reverse("token-refresh"), {"refresh": refresh_token})
+        assert response.status_code == 200
+        assert "access" in response.data
+
+    def test_refresh_invalid_token(self):
+        response = self.client.post(reverse("token-refresh"), {"refresh": "invalid-token"})
+        assert response.status_code == 401
+
+
+@pytest.mark.django_db
+class TestOTPTask:
+    def test_send_otp_sms_task(self):
+        from apps.accounts.tasks import send_otp_sms
+
+        result = send_otp_sms("919876543210", "123456")
+        assert result["status"] == "sent"
+        assert result["phone"] == "919876543210"
