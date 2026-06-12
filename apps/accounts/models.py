@@ -2,7 +2,6 @@ from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, Permis
 from django.core.validators import RegexValidator
 from django.db import models
 
-
 phone_validator = RegexValidator(
     regex=r"^\+?1?\d{9,15}$",
     message="Phone number must be 9-15 digits, optionally starting with '+'.",
