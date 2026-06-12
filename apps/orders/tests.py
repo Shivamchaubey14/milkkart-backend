@@ -260,3 +260,26 @@ class TestOrderDetailAPI:
         other_client.force_authenticate(user=other_user)
         response = other_client.get(reverse("order-detail", kwargs={"order_number": order_number}))
         assert response.status_code == 404
+
+
+@pytest.mark.django_db
+class TestOrderTasks:
+    def test_send_order_confirmation(self, user, address):
+        from apps.orders.tasks import send_order_confirmation
+
+        order = Order.objects.create(user=user, total=Decimal("100.00"), address=address, address_snapshot="test")
+        result = send_order_confirmation(order.id)
+        assert result["status"] == "confirmation_sent"
+
+    def test_send_order_status_update(self, user, address):
+        from apps.orders.tasks import send_order_status_update
+
+        order = Order.objects.create(user=user, total=Decimal("100.00"), address=address, address_snapshot="test")
+        result = send_order_status_update(order.id, "confirmed")
+        assert result["new_status"] == "confirmed"
+
+    def test_confirmation_missing_order(self):
+        from apps.orders.tasks import send_order_confirmation
+
+        result = send_order_confirmation(99999)
+        assert result is None
