@@ -1,6 +1,11 @@
+import random
+import string
+
+from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.core.validators import RegexValidator
 from django.db import models
+from django.utils import timezone
 
 phone_validator = RegexValidator(
     regex=r"^\+?1?\d{9,15}$",
@@ -50,3 +55,36 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.phone
+
+
+class OTP(models.Model):
+    phone = models.CharField(max_length=17, validators=[phone_validator])
+    code = models.CharField(max_length=6)
+    is_verified = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        db_table = "otps"
+        indexes = [
+            models.Index(fields=["phone", "code"]),
+        ]
+
+    def __str__(self):
+        return f"OTP({self.phone})"
+
+    def save(self, *args, **kwargs):
+        if not self.expires_at:
+            self.expires_at = timezone.now() + timezone.timedelta(
+                minutes=settings.OTP_EXPIRY_MINUTES,
+            )
+        super().save(*args, **kwargs)
+
+    @property
+    def is_expired(self):
+        return timezone.now() > self.expires_at
+
+    @classmethod
+    def generate(cls, phone):
+        code = "".join(random.choices(string.digits, k=settings.OTP_LENGTH))
+        return cls.objects.create(phone=phone, code=code)
