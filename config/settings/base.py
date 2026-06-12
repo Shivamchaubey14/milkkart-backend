@@ -23,8 +23,10 @@ INSTALLED_APPS = [
     "channels",
     # Local
     "apps.accounts",
+    "apps.cart",
     "apps.catalog",
     "apps.core",
+    "apps.orders",
 ]
 
 MIDDLEWARE = [
