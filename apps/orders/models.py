@@ -48,7 +48,20 @@ class Order(models.Model):
         default=Status.PENDING,
     )
     total = models.DecimalField(max_digits=10, decimal_places=2)
-    delivery_address = models.TextField()
+    address = models.ForeignKey(
+        "addresses.Address",
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="orders",
+    )
+    address_snapshot = models.TextField(default="", help_text="Address text at time of order")
+    delivery_slot = models.ForeignKey(
+        DeliverySlot,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="orders",
+    )
     notes = models.TextField(blank=True)
     placed_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
