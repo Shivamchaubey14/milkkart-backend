@@ -74,7 +74,6 @@ class TestSendOTPView:
         response = self.client.post(self.url, {"phone": "+919876543210"})
         assert response.status_code == 200
         assert response.data["message"] == "OTP sent successfully"
-        assert "debug_otp" in response.data
         assert OTP.objects.filter(phone="+919876543210").count() == 1
 
     def test_send_otp_invalid_phone(self):

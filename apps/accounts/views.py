@@ -8,6 +8,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import OTP, User
 from .serializers import SendOTPSerializer, UserSerializer, VerifyOTPSerializer
+from .tasks import send_otp_sms
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +21,10 @@ def send_otp(request):
     phone = serializer.validated_data["phone"]
 
     otp = OTP.generate(phone)
-    logger.info("OTP %s generated for %s", otp.code, phone)
+    send_otp_sms.delay(phone, otp.code)
 
     return Response(
-        {"message": "OTP sent successfully", "debug_otp": otp.code},
+        {"message": "OTP sent successfully"},
         status=status.HTTP_200_OK,
     )
 
