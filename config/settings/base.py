@@ -23,6 +23,7 @@ INSTALLED_APPS = [
     "channels",
     # Local
     "apps.accounts",
+    "apps.addresses",
     "apps.cart",
     "apps.catalog",
     "apps.core",
