@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Order, OrderItem
+from .models import DeliverySlot, Order, OrderItem
 
 
 class OrderItemInline(admin.TabularInline):
@@ -16,3 +16,9 @@ class OrderAdmin(admin.ModelAdmin):
     search_fields = ("order_number", "user__phone")
     readonly_fields = ("order_number", "placed_at")
     inlines = [OrderItemInline]
+
+
+@admin.register(DeliverySlot)
+class DeliverySlotAdmin(admin.ModelAdmin):
+    list_display = ("date", "start_time", "end_time", "capacity", "booked", "available")
+    list_filter = ("date",)

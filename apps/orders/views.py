@@ -1,4 +1,4 @@
-from django.db import transaction
+from django.db import models, transaction
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -6,8 +6,8 @@ from rest_framework.response import Response
 
 from apps.cart.models import Cart
 
-from .models import Order, OrderItem
-from .serializers import CheckoutSerializer, OrderDetailSerializer, OrderListSerializer
+from .models import DeliverySlot, Order, OrderItem
+from .serializers import CheckoutSerializer, DeliverySlotSerializer, OrderDetailSerializer, OrderListSerializer
 
 
 @api_view(["POST"])
@@ -85,3 +85,15 @@ def order_detail(request, order_number):
         return Response({"error": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
 
     return Response(OrderDetailSerializer(order).data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def delivery_slot_list(request):
+    date = request.query_params.get("date")
+    slots = DeliverySlot.objects.all()
+    if date:
+        slots = slots.filter(date=date)
+    slots = slots.filter(booked__lt=models.F("capacity"))
+    serializer = DeliverySlotSerializer(slots, many=True)
+    return Response(serializer.data)

@@ -6,4 +6,5 @@ urlpatterns = [
     path("checkout/", views.checkout, name="order-checkout"),
     path("", views.order_list, name="order-list"),
     path("<uuid:order_number>/", views.order_detail, name="order-detail"),
+    path("delivery-slots/", views.delivery_slot_list, name="delivery-slot-list"),
 ]

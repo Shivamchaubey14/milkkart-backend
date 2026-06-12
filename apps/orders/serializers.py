@@ -1,6 +1,15 @@
 from rest_framework import serializers
 
-from .models import Order, OrderItem
+from .models import DeliverySlot, Order, OrderItem
+
+
+class DeliverySlotSerializer(serializers.ModelSerializer):
+    available = serializers.IntegerField(read_only=True)
+    is_full = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = DeliverySlot
+        fields = ["id", "date", "start_time", "end_time", "capacity", "booked", "available", "is_full"]
 
 
 class OrderItemSerializer(serializers.ModelSerializer):
