@@ -8,6 +8,7 @@ class Payment(models.Model):
     class Method(models.TextChoices):
         COD = "cod", "Cash on Delivery"
         ONLINE = "online", "Online"
+        WALLET = "wallet", "MilkKart Wallet"
 
     class Status(models.TextChoices):
         CREATED = "created", "Created"

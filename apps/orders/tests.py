@@ -1,15 +1,17 @@
-from datetime import date, time
+from datetime import date, time, timedelta
 from decimal import Decimal
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.addresses.models import Address
 from apps.cart.models import Cart, CartItem
-from apps.catalog.models import Category, Product
+from apps.catalog.models import Category, Product, ProductVariant
 from apps.orders.models import DeliverySlot, Order
+from apps.promotions.models import Coupon, CouponRedemption
 
 User = get_user_model()
 
@@ -24,25 +26,22 @@ def category(db):
     return Category.objects.create(name="Milk")
 
 
+# `product`/`product_b` fixtures return the sellable ProductVariant (SKU).
 @pytest.fixture
 def product(category):
-    return Product.objects.create(
-        category=category,
-        name="Full Cream Milk",
-        price=Decimal("28.00"),
-        mrp=Decimal("30.00"),
-        stock=10,
+    p = Product.objects.create(category=category, name="Full Cream Milk")
+    return ProductVariant.objects.create(
+        product=p, label="500 ml", sku="fcm-500",
+        price=Decimal("28.00"), mrp=Decimal("30.00"), stock=10, is_default=True,
     )
 
 
 @pytest.fixture
 def product_b(category):
-    return Product.objects.create(
-        category=category,
-        name="Toned Milk",
-        price=Decimal("24.00"),
-        mrp=Decimal("26.00"),
-        stock=5,
+    p = Product.objects.create(category=category, name="Toned Milk")
+    return ProductVariant.objects.create(
+        product=p, label="500 ml", sku="tm-500",
+        price=Decimal("24.00"), mrp=Decimal("26.00"), stock=5, is_default=True,
     )
 
 
@@ -79,8 +78,8 @@ def delivery_slot(db):
 @pytest.fixture
 def cart_with_items(user, product, product_b):
     cart = Cart.objects.create(user=user)
-    CartItem.objects.create(cart=cart, product=product, quantity=2)
-    CartItem.objects.create(cart=cart, product=product_b, quantity=1)
+    CartItem.objects.create(cart=cart, variant=product, quantity=2)
+    CartItem.objects.create(cart=cart, variant=product_b, quantity=1)
     return cart
 
 
@@ -139,7 +138,9 @@ class TestCheckoutAPI:
             {"address_id": address.id},
         )
         assert response.status_code == 201
-        assert Decimal(response.data["total"]) == Decimal("80.00")
+        # subtotal 80 + delivery 25 + small-cart 15 + 5% tax (6.00) = 126.00
+        assert Decimal(response.data["subtotal"]) == Decimal("80.00")
+        assert Decimal(response.data["total"]) == Decimal("126.00")
         assert "42 Dairy Lane" in response.data["address_snapshot"]
         assert len(response.data["items"]) == 2
 
@@ -192,7 +193,7 @@ class TestCheckoutAPI:
 
     def test_checkout_insufficient_stock(self, auth_client, user, product, address):
         cart = Cart.objects.create(user=user)
-        CartItem.objects.create(cart=cart, product=product, quantity=999)
+        CartItem.objects.create(cart=cart, variant=product, quantity=999)
         response = auth_client.post(reverse("order-checkout"), {"address_id": address.id})
         assert response.status_code == 400
         assert "stock" in response.data["error"].lower()
@@ -213,6 +214,29 @@ class TestCheckoutAPI:
         )
         assert response.status_code == 201
         assert response.data["notes"] == "Ring the bell"
+
+    def test_checkout_applies_coupon(self, auth_client, user, cart_with_items, address):
+        now = timezone.now()
+        coupon = Coupon.objects.create(
+            code="FLAT20", discount_type=Coupon.DiscountType.FLAT, value=Decimal("20"),
+            valid_from=now - timedelta(days=1), valid_until=now + timedelta(days=1),
+        )
+        cart_with_items.applied_coupon = coupon
+        cart_with_items.save()
+
+        response = auth_client.post(reverse("order-checkout"), {"address_id": address.id})
+        assert response.status_code == 201
+        # subtotal 80, -20 coupon, +25 delivery +15 small-cart, +5% tax (5.00) = 105.00
+        assert Decimal(response.data["discount"]) == Decimal("20.00")
+        assert Decimal(response.data["total"]) == Decimal("105.00")
+        assert response.data["coupon_code"] == "FLAT20"
+
+        order = Order.objects.get(order_number=response.data["order_number"])
+        assert CouponRedemption.objects.filter(coupon=coupon, order=order).count() == 1
+        coupon.refresh_from_db()
+        assert coupon.times_used == 1
+        cart_with_items.refresh_from_db()
+        assert cart_with_items.applied_coupon is None
 
 
 @pytest.mark.django_db
@@ -283,3 +307,131 @@ class TestOrderTasks:
 
         result = send_order_confirmation(99999)
         assert result is None
+
+
+@pytest.mark.django_db
+class TestCancelOrderAPI:
+    def _place_order(self, auth_client, address, slot_id=None):
+        payload = {"address_id": address.id}
+        if slot_id:
+            payload["delivery_slot_id"] = slot_id
+        resp = auth_client.post(reverse("order-checkout"), payload)
+        return resp.data["order_number"]
+
+    def test_cancel_restocks_and_cancels(self, auth_client, cart_with_items, address, product, product_b):
+        order_number = self._place_order(auth_client, address)
+        product.refresh_from_db()
+        assert product.stock == 8  # reserved at checkout
+
+        response = auth_client.post(reverse("order-cancel", kwargs={"order_number": order_number}))
+        assert response.status_code == 200
+        assert response.data["status"] == "cancelled"
+
+        product.refresh_from_db()
+        product_b.refresh_from_db()
+        assert product.stock == 10  # restocked
+        assert product_b.stock == 5
+
+    def test_cancel_frees_delivery_slot(self, auth_client, cart_with_items, address, delivery_slot):
+        order_number = self._place_order(auth_client, address, slot_id=delivery_slot.id)
+        delivery_slot.refresh_from_db()
+        assert delivery_slot.booked == 1
+
+        auth_client.post(reverse("order-cancel", kwargs={"order_number": order_number}))
+        delivery_slot.refresh_from_db()
+        assert delivery_slot.booked == 0
+
+    def test_cancel_refunds_paid_online_order(self, auth_client, cart_with_items, address):
+        from apps.payments import gateway
+        from apps.payments.models import Payment
+
+        order_number = self._place_order(auth_client, address)
+        init = auth_client.post(
+            reverse("payment-initiate"),
+            {"order_number": order_number, "method": "online"},
+        )
+        gw_order_id = init.data["gateway"]["order_id"]
+        gw_payment_id = "pay_abcdef"
+        auth_client.post(
+            reverse("payment-verify"),
+            {
+                "gateway_order_id": gw_order_id,
+                "gateway_payment_id": gw_payment_id,
+                "gateway_signature": gateway.sign(gw_order_id, gw_payment_id),
+            },
+        )
+
+        response = auth_client.post(reverse("order-cancel", kwargs={"order_number": order_number}))
+        assert response.status_code == 200
+        payment = Payment.objects.get(order__order_number=order_number)
+        assert payment.status == Payment.Status.REFUNDED
+
+    def test_cancel_refunds_wallet_payment_to_wallet(self, auth_client, cart_with_items, address, user):
+        from apps.payments.models import Payment
+        from apps.wallet.models import WalletTransaction, get_or_create_wallet
+
+        wallet = get_or_create_wallet(user)
+        wallet.credit(Decimal("500"), WalletTransaction.Type.TOPUP)
+
+        order_number = self._place_order(auth_client, address)  # subtotal 80 -> total 126
+        auth_client.post(
+            reverse("payment-initiate"),
+            {"order_number": order_number, "method": "wallet"},
+        )
+        wallet.refresh_from_db()
+        assert wallet.balance == Decimal("374.00")  # 500 - 126
+
+        auth_client.post(reverse("order-cancel", kwargs={"order_number": order_number}))
+        wallet.refresh_from_db()
+        assert wallet.balance == Decimal("500.00")  # refunded to wallet
+        payment = Payment.objects.get(order__order_number=order_number)
+        assert payment.status == Payment.Status.REFUNDED
+
+    def test_cancel_voids_unpaid_cod_payment(self, auth_client, cart_with_items, address):
+        from apps.payments.models import Payment
+
+        order_number = self._place_order(auth_client, address)
+        auth_client.post(
+            reverse("payment-initiate"),
+            {"order_number": order_number, "method": "cod"},
+        )
+        auth_client.post(reverse("order-cancel", kwargs={"order_number": order_number}))
+        payment = Payment.objects.get(order__order_number=order_number)
+        assert payment.status == Payment.Status.FAILED
+
+    def test_cannot_cancel_delivered_order(self, auth_client, cart_with_items, address):
+        order_number = self._place_order(auth_client, address)
+        order = Order.objects.get(order_number=order_number)
+        order.status = Order.Status.DELIVERED
+        order.save()
+        response = auth_client.post(reverse("order-cancel", kwargs={"order_number": order_number}))
+        assert response.status_code == 400
+        assert "cannot be cancelled" in response.data["error"].lower()
+
+    def test_cannot_cancel_out_for_delivery_order(self, auth_client, cart_with_items, address):
+        order_number = self._place_order(auth_client, address)
+        order = Order.objects.get(order_number=order_number)
+        order.status = Order.Status.OUT_FOR_DELIVERY
+        order.save()
+        response = auth_client.post(reverse("order-cancel", kwargs={"order_number": order_number}))
+        assert response.status_code == 400
+
+    def test_cancel_not_found(self, auth_client):
+        response = auth_client.post(
+            reverse("order-cancel", kwargs={"order_number": "00000000-0000-0000-0000-000000000000"})
+        )
+        assert response.status_code == 404
+
+    def test_other_user_cannot_cancel(self, auth_client, cart_with_items, address):
+        order_number = self._place_order(auth_client, address)
+        other_user = User.objects.create_user(phone="+919876543211", name="Other")
+        other_client = APIClient()
+        other_client.force_authenticate(user=other_user)
+        response = other_client.post(reverse("order-cancel", kwargs={"order_number": order_number}))
+        assert response.status_code == 404
+
+    def test_cancel_unauthenticated(self, auth_client, cart_with_items, address):
+        order_number = self._place_order(auth_client, address)
+        client = APIClient()
+        response = client.post(reverse("order-cancel", kwargs={"order_number": order_number}))
+        assert response.status_code == 401

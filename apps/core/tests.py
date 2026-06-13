@@ -3,7 +3,7 @@ from django.core.management import call_command
 from django.test import RequestFactory
 from rest_framework.test import APIClient
 
-from apps.catalog.models import Category, Product
+from apps.catalog.models import Category, Product, ProductVariant
 from apps.core.views import health_check
 from apps.orders.models import DeliverySlot
 
@@ -38,13 +38,31 @@ class TestSeedCatalogCommand:
     def test_seed_catalog(self):
         call_command("seed_catalog")
         assert Category.objects.count() == 6
-        assert Product.objects.count() == 29
+        assert Product.objects.count() == 22
+        assert ProductVariant.objects.count() == 29
 
     def test_seed_catalog_idempotent(self):
         call_command("seed_catalog")
         call_command("seed_catalog")
         assert Category.objects.count() == 6
-        assert Product.objects.count() == 29
+        assert Product.objects.count() == 22
+        assert ProductVariant.objects.count() == 29
+
+
+@pytest.mark.django_db
+class TestSeedCouponsCommand:
+    def test_seed_coupons(self):
+        from apps.promotions.models import Coupon
+
+        call_command("seed_coupons")
+        assert Coupon.objects.count() == 3
+
+    def test_seed_coupons_idempotent(self):
+        from apps.promotions.models import Coupon
+
+        call_command("seed_coupons")
+        call_command("seed_coupons")
+        assert Coupon.objects.count() == 3
 
 
 @pytest.mark.django_db

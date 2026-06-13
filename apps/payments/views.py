@@ -6,6 +6,7 @@ from rest_framework.response import Response
 
 from apps.orders.models import Order
 from apps.orders.tasks import send_order_confirmation
+from apps.wallet.models import InsufficientBalance, get_or_create_wallet
 
 from . import gateway
 from .models import Payment
@@ -44,6 +45,14 @@ def initiate_payment(request):
 
     method = serializer.validated_data["method"]
 
+    if method == Payment.Method.WALLET:
+        wallet = get_or_create_wallet(request.user)
+        if wallet.balance < order.total:
+            return Response(
+                {"error": "Insufficient wallet balance."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
     with transaction.atomic():
         # Replace any prior created/failed attempt for this order.
         Payment.objects.filter(order=order).delete()
@@ -54,6 +63,24 @@ def initiate_payment(request):
                 user=request.user,
                 method=method,
                 status=Payment.Status.PENDING,
+                amount=order.total,
+            )
+            order.status = Order.Status.CONFIRMED
+            order.save(update_fields=["status"])
+        elif method == Payment.Method.WALLET:
+            try:
+                wallet.debit(order.total, description=f"Order {order.order_number}", order=order)
+            except InsufficientBalance:
+                transaction.set_rollback(True)
+                return Response(
+                    {"error": "Insufficient wallet balance."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            payment = Payment.objects.create(
+                order=order,
+                user=request.user,
+                method=method,
+                status=Payment.Status.SUCCESS,
                 amount=order.total,
             )
             order.status = Order.Status.CONFIRMED
@@ -69,7 +96,7 @@ def initiate_payment(request):
                 gateway_order_id=gateway_order["id"],
             )
 
-    if method == Payment.Method.COD:
+    if method in (Payment.Method.COD, Payment.Method.WALLET):
         send_payment_receipt.delay(payment.id)
         send_order_confirmation.delay(order.id)
         return Response(PaymentSerializer(payment).data, status=status.HTTP_201_CREATED)

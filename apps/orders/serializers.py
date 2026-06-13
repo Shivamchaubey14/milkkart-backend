@@ -17,7 +17,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = OrderItem
-        fields = ["id", "product_name", "product_price", "quantity", "subtotal"]
+        fields = ["id", "product_name", "variant_label", "product_price", "quantity", "subtotal"]
 
 
 class OrderListSerializer(serializers.ModelSerializer):
@@ -31,6 +31,7 @@ class OrderListSerializer(serializers.ModelSerializer):
 class OrderDetailSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     delivery_slot = DeliverySlotSerializer(read_only=True)
+    coupon_code = serializers.CharField(source="coupon.code", read_only=True, default=None)
 
     class Meta:
         model = Order
@@ -38,7 +39,13 @@ class OrderDetailSerializer(serializers.ModelSerializer):
             "id",
             "order_number",
             "status",
+            "subtotal",
+            "discount",
+            "delivery_fee",
+            "small_cart_fee",
+            "tax",
             "total",
+            "coupon_code",
             "address_snapshot",
             "delivery_slot",
             "notes",

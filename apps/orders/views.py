@@ -5,11 +5,15 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.addresses.models import Address
+from apps.cart.billing import compute_bill
 from apps.cart.models import Cart
+from apps.promotions.models import Coupon, CouponRedemption
 
 from .models import DeliverySlot, Order, OrderItem
 from .serializers import CheckoutSerializer, DeliverySlotSerializer, OrderDetailSerializer, OrderListSerializer
-from .tasks import send_order_confirmation
+from .tasks import send_order_confirmation, send_order_status_update
+
+CANCELLABLE_STATUSES = (Order.Status.PENDING, Order.Status.CONFIRMED)
 
 
 @api_view(["POST"])
@@ -35,30 +39,43 @@ def checkout(request):
             return Response({"error": "Delivery slot is full."}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        cart = Cart.objects.prefetch_related("items__product").get(user=request.user)
+        cart = (
+            Cart.objects.select_related("applied_coupon")
+            .prefetch_related("items__variant__product")
+            .get(user=request.user)
+        )
     except Cart.DoesNotExist:
         return Response({"error": "Cart is empty."}, status=status.HTTP_400_BAD_REQUEST)
 
-    cart_items = list(cart.items.select_related("product").all())
+    cart_items = list(cart.items.select_related("variant__product").all())
     if not cart_items:
         return Response({"error": "Cart is empty."}, status=status.HTTP_400_BAD_REQUEST)
 
     # Validate stock
     for item in cart_items:
-        if item.quantity > item.product.stock:
+        if item.quantity > item.variant.stock:
+            name = f"{item.variant.product.name} ({item.variant.label})"
             return Response(
-                {"error": f"'{item.product.name}' only has {item.product.stock} in stock."},
+                {"error": f"'{name}' only has {item.variant.stock} in stock."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
     address_snapshot = f"{address.address_line}, {address.landmark}, {address.city}, {address.state} {address.pincode}"
 
-    with transaction.atomic():
-        total = sum(item.subtotal for item in cart_items)
+    bill = compute_bill(cart)
+    # A coupon is only charged if it was still eligible at checkout time.
+    coupon = cart.applied_coupon if bill["coupon_code"] else None
 
+    with transaction.atomic():
         order = Order.objects.create(
             user=request.user,
-            total=total,
+            subtotal=bill["subtotal"],
+            discount=bill["coupon_discount"],
+            delivery_fee=bill["delivery_fee"],
+            small_cart_fee=bill["small_cart_fee"],
+            tax=bill["tax"],
+            total=bill["grand_total"],
+            coupon=coupon,
             address=address,
             address_snapshot=address_snapshot,
             delivery_slot=delivery_slot,
@@ -70,14 +87,15 @@ def checkout(request):
             order_items.append(
                 OrderItem(
                     order=order,
-                    product=item.product,
-                    product_name=item.product.name,
-                    product_price=item.product.price,
+                    variant=item.variant,
+                    product_name=item.variant.product.name,
+                    variant_label=item.variant.label,
+                    product_price=item.variant.price,
                     quantity=item.quantity,
                 )
             )
-            item.product.stock -= item.quantity
-            item.product.save(update_fields=["stock"])
+            item.variant.stock -= item.quantity
+            item.variant.save(update_fields=["stock"])
 
         OrderItem.objects.bulk_create(order_items)
 
@@ -85,6 +103,17 @@ def checkout(request):
             delivery_slot.booked += 1
             delivery_slot.save(update_fields=["booked"])
 
+        if coupon:
+            CouponRedemption.objects.create(
+                coupon=coupon,
+                user=request.user,
+                order=order,
+                discount_amount=bill["coupon_discount"],
+            )
+            Coupon.objects.filter(pk=coupon.pk).update(times_used=models.F("times_used") + 1)
+
+        cart.applied_coupon = None
+        cart.save(update_fields=["applied_coupon", "updated_at"])
         cart.items.all().delete()
 
     send_order_confirmation.delay(order.id)
@@ -112,6 +141,70 @@ def order_detail(request, order_number):
         )
     except Order.DoesNotExist:
         return Response({"error": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    return Response(OrderDetailSerializer(order).data)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def cancel_order(request, order_number):
+    from apps.payments.models import Payment
+    from apps.payments.tasks import process_refund
+    from apps.wallet.models import WalletTransaction, get_or_create_wallet
+
+    try:
+        order = Order.objects.select_related("delivery_slot").prefetch_related("items__variant").get(
+            order_number=order_number, user=request.user
+        )
+    except Order.DoesNotExist:
+        return Response({"error": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    if order.status not in CANCELLABLE_STATUSES:
+        return Response(
+            {"error": f"Order cannot be cancelled once it is {order.get_status_display().lower()}."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    with transaction.atomic():
+        # Restock variants reserved at checkout.
+        for item in order.items.all():
+            if item.variant:
+                item.variant.stock += item.quantity
+                item.variant.save(update_fields=["stock"])
+
+        # Free up the booked delivery slot.
+        if order.delivery_slot and order.delivery_slot.booked > 0:
+            order.delivery_slot.booked -= 1
+            order.delivery_slot.save(update_fields=["booked"])
+
+        # Settle the payment: refund if captured, otherwise void.
+        payment = getattr(order, "payment", None)
+        refund_payment_id = None
+        if payment:
+            if payment.status == Payment.Status.SUCCESS:
+                payment.status = Payment.Status.REFUNDED
+                payment.save(update_fields=["status", "updated_at"])
+                if payment.method == Payment.Method.WALLET:
+                    # Money came from the wallet — return it there immediately.
+                    wallet = get_or_create_wallet(order.user)
+                    wallet.credit(
+                        payment.amount,
+                        WalletTransaction.Type.REFUND,
+                        description=f"Refund for order {order.order_number}",
+                        order=order,
+                    )
+                else:
+                    refund_payment_id = payment.id
+            elif payment.status in (Payment.Status.CREATED, Payment.Status.PENDING):
+                payment.status = Payment.Status.FAILED
+                payment.save(update_fields=["status", "updated_at"])
+
+        order.status = Order.Status.CANCELLED
+        order.save(update_fields=["status"])
+
+    if refund_payment_id:
+        process_refund.delay(refund_payment_id)
+    send_order_status_update.delay(order.id, Order.Status.CANCELLED)
 
     return Response(OrderDetailSerializer(order).data)
 

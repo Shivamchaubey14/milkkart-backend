@@ -1,4 +1,4 @@
-from django.db.models import Count
+from django.db.models import Count, Min, Q
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import generics
 from rest_framework.filters import OrderingFilter, SearchFilter
@@ -25,12 +25,18 @@ class ProductListView(generics.ListAPIView):
     serializer_class = ProductListSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_class = ProductFilter
-    search_fields = ["name", "description"]
-    ordering_fields = ["price", "created_at", "name"]
+    search_fields = ["name", "description", "brand", "tags"]
+    ordering_fields = ["min_price", "created_at", "name"]
     ordering = ["-created_at"]
 
     def get_queryset(self):
-        return Product.objects.filter(is_active=True).select_related("category")
+        return (
+            Product.objects.filter(is_active=True)
+            .select_related("category")
+            .prefetch_related("variants", "images")
+            .annotate(min_price=Min("variants__price", filter=Q(variants__is_active=True)))
+            .distinct()
+        )
 
 
 class ProductDetailView(generics.RetrieveAPIView):
@@ -39,4 +45,8 @@ class ProductDetailView(generics.RetrieveAPIView):
     lookup_field = "slug"
 
     def get_queryset(self):
-        return Product.objects.filter(is_active=True).select_related("category").prefetch_related("images")
+        return (
+            Product.objects.filter(is_active=True)
+            .select_related("category")
+            .prefetch_related("variants", "images")
+        )
