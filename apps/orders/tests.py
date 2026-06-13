@@ -8,7 +8,7 @@ from rest_framework.test import APIClient
 
 from apps.addresses.models import Address
 from apps.cart.models import Cart, CartItem
-from apps.catalog.models import Category, Product
+from apps.catalog.models import Category, Product, ProductVariant
 from apps.orders.models import DeliverySlot, Order
 
 User = get_user_model()
@@ -24,25 +24,22 @@ def category(db):
     return Category.objects.create(name="Milk")
 
 
+# `product`/`product_b` fixtures return the sellable ProductVariant (SKU).
 @pytest.fixture
 def product(category):
-    return Product.objects.create(
-        category=category,
-        name="Full Cream Milk",
-        price=Decimal("28.00"),
-        mrp=Decimal("30.00"),
-        stock=10,
+    p = Product.objects.create(category=category, name="Full Cream Milk")
+    return ProductVariant.objects.create(
+        product=p, label="500 ml", sku="fcm-500",
+        price=Decimal("28.00"), mrp=Decimal("30.00"), stock=10, is_default=True,
     )
 
 
 @pytest.fixture
 def product_b(category):
-    return Product.objects.create(
-        category=category,
-        name="Toned Milk",
-        price=Decimal("24.00"),
-        mrp=Decimal("26.00"),
-        stock=5,
+    p = Product.objects.create(category=category, name="Toned Milk")
+    return ProductVariant.objects.create(
+        product=p, label="500 ml", sku="tm-500",
+        price=Decimal("24.00"), mrp=Decimal("26.00"), stock=5, is_default=True,
     )
 
 
@@ -79,8 +76,8 @@ def delivery_slot(db):
 @pytest.fixture
 def cart_with_items(user, product, product_b):
     cart = Cart.objects.create(user=user)
-    CartItem.objects.create(cart=cart, product=product, quantity=2)
-    CartItem.objects.create(cart=cart, product=product_b, quantity=1)
+    CartItem.objects.create(cart=cart, variant=product, quantity=2)
+    CartItem.objects.create(cart=cart, variant=product_b, quantity=1)
     return cart
 
 
@@ -192,7 +189,7 @@ class TestCheckoutAPI:
 
     def test_checkout_insufficient_stock(self, auth_client, user, product, address):
         cart = Cart.objects.create(user=user)
-        CartItem.objects.create(cart=cart, product=product, quantity=999)
+        CartItem.objects.create(cart=cart, variant=product, quantity=999)
         response = auth_client.post(reverse("order-checkout"), {"address_id": address.id})
         assert response.status_code == 400
         assert "stock" in response.data["error"].lower()

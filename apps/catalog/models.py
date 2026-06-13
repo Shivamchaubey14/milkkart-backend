@@ -28,12 +28,7 @@ class Category(models.Model):
 
 
 class Product(models.Model):
-    class Unit(models.TextChoices):
-        ML = "ml", "Millilitres"
-        L = "l", "Litres"
-        G = "g", "Grams"
-        KG = "kg", "Kilograms"
-        PCS = "pcs", "Pieces"
+    """A sellable product. Pricing and stock live on its variants (SKUs)."""
 
     category = models.ForeignKey(
         Category,
@@ -42,25 +37,9 @@ class Product(models.Model):
     )
     name = models.CharField(max_length=200)
     slug = models.SlugField(max_length=220, unique=True, blank=True)
+    brand = models.CharField(max_length=120, blank=True, default="")
     description = models.TextField(blank=True)
-    price = models.DecimalField(
-        max_digits=8,
-        decimal_places=2,
-        validators=[MinValueValidator(0)],
-    )
-    mrp = models.DecimalField(
-        max_digits=8,
-        decimal_places=2,
-        validators=[MinValueValidator(0)],
-    )
-    unit = models.CharField(max_length=5, choices=Unit.choices, default=Unit.PCS)
-    quantity_value = models.DecimalField(
-        max_digits=8,
-        decimal_places=2,
-        default=1,
-        help_text="e.g. 500 for 500ml",
-    )
-    stock = models.PositiveIntegerField(default=0)
+    tags = models.CharField(max_length=255, blank=True, default="", help_text="Comma-separated search tags")
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -76,6 +55,70 @@ class Product(models.Model):
         if not self.slug:
             self.slug = slugify(self.name)
         super().save(*args, **kwargs)
+
+    @property
+    def default_variant(self):
+        """The variant shown on the product card — explicit default, else cheapest active."""
+        active = [v for v in self.variants.all() if v.is_active]
+        if not active:
+            return None
+        return sorted(active, key=lambda v: (not v.is_default, v.price))[0]
+
+
+class ProductVariant(models.Model):
+    """A stock-keeping unit: a specific size/fat% of a product with its own price and stock."""
+
+    class Unit(models.TextChoices):
+        ML = "ml", "Millilitres"
+        L = "l", "Litres"
+        G = "g", "Grams"
+        KG = "kg", "Kilograms"
+        PCS = "pcs", "Pieces"
+
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="variants",
+    )
+    label = models.CharField(max_length=100, help_text="e.g. 500 ml, 1 L, Pack of 6")
+    sku = models.CharField(max_length=50, unique=True)
+    unit = models.CharField(max_length=5, choices=Unit.choices, default=Unit.PCS)
+    quantity_value = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        default=1,
+        help_text="e.g. 500 for 500ml",
+    )
+    fat_percent = models.DecimalField(
+        max_digits=4,
+        decimal_places=1,
+        null=True,
+        blank=True,
+        help_text="Fat content %, where applicable",
+    )
+    price = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        validators=[MinValueValidator(0)],
+    )
+    mrp = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        validators=[MinValueValidator(0)],
+    )
+    stock = models.PositiveIntegerField(default=0)
+    barcode = models.CharField(max_length=50, blank=True)
+    is_default = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "product_variants"
+        ordering = ["price"]
+
+    def __str__(self):
+        return f"{self.product.name} — {self.label}"
 
     @property
     def discount_percent(self):
