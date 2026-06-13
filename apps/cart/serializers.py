@@ -1,20 +1,17 @@
 from rest_framework import serializers
 
-from apps.catalog.models import Product
+from apps.catalog.models import ProductVariant
 
 from .models import Cart, CartItem
 
 
 class CartItemSerializer(serializers.ModelSerializer):
-    product_id = serializers.PrimaryKeyRelatedField(
-        queryset=Product.objects.filter(is_active=True),
-        source="product",
-        write_only=True,
-    )
-    product_name = serializers.CharField(source="product.name", read_only=True)
-    product_slug = serializers.CharField(source="product.slug", read_only=True)
+    product_name = serializers.CharField(source="variant.product.name", read_only=True)
+    product_slug = serializers.CharField(source="variant.product.slug", read_only=True)
+    variant_label = serializers.CharField(source="variant.label", read_only=True)
+    sku = serializers.CharField(source="variant.sku", read_only=True)
     price = serializers.DecimalField(
-        source="product.price", max_digits=8, decimal_places=2, read_only=True
+        source="variant.price", max_digits=8, decimal_places=2, read_only=True
     )
     subtotal = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
 
@@ -22,13 +19,16 @@ class CartItemSerializer(serializers.ModelSerializer):
         model = CartItem
         fields = [
             "id",
-            "product_id",
+            "variant",
             "product_name",
             "product_slug",
+            "variant_label",
+            "sku",
             "price",
             "quantity",
             "subtotal",
         ]
+        read_only_fields = ["variant"]
 
 
 class CartSerializer(serializers.ModelSerializer):
@@ -42,14 +42,14 @@ class CartSerializer(serializers.ModelSerializer):
 
 
 class AddToCartSerializer(serializers.Serializer):
-    product_id = serializers.IntegerField()
+    variant_id = serializers.IntegerField()
     quantity = serializers.IntegerField(min_value=1, default=1)
 
-    def validate_product_id(self, value):
+    def validate_variant_id(self, value):
         try:
-            Product.objects.get(id=value, is_active=True)
-        except Product.DoesNotExist:
-            raise serializers.ValidationError("Product not found or inactive.")
+            ProductVariant.objects.get(id=value, is_active=True, product__is_active=True)
+        except ProductVariant.DoesNotExist:
+            raise serializers.ValidationError("Variant not found or inactive.")
         return value
 
 

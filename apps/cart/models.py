@@ -20,7 +20,7 @@ class Cart(models.Model):
 
     @property
     def total(self):
-        return sum(item.subtotal for item in self.items.select_related("product").all())
+        return sum(item.subtotal for item in self.items.select_related("variant").all())
 
     @property
     def item_count(self):
@@ -29,8 +29,8 @@ class Cart(models.Model):
 
 class CartItem(models.Model):
     cart = models.ForeignKey(Cart, on_delete=models.CASCADE, related_name="items")
-    product = models.ForeignKey(
-        "catalog.Product",
+    variant = models.ForeignKey(
+        "catalog.ProductVariant",
         on_delete=models.CASCADE,
         related_name="cart_items",
     )
@@ -39,11 +39,11 @@ class CartItem(models.Model):
 
     class Meta:
         db_table = "cart_items"
-        unique_together = ("cart", "product")
+        unique_together = ("cart", "variant")
 
     def __str__(self):
-        return f"{self.product.name} x{self.quantity}"
+        return f"{self.variant.product.name} ({self.variant.label}) x{self.quantity}"
 
     @property
     def subtotal(self):
-        return self.product.price * self.quantity
+        return self.variant.price * self.quantity
