@@ -366,6 +366,27 @@ class TestCancelOrderAPI:
         payment = Payment.objects.get(order__order_number=order_number)
         assert payment.status == Payment.Status.REFUNDED
 
+    def test_cancel_refunds_wallet_payment_to_wallet(self, auth_client, cart_with_items, address, user):
+        from apps.payments.models import Payment
+        from apps.wallet.models import WalletTransaction, get_or_create_wallet
+
+        wallet = get_or_create_wallet(user)
+        wallet.credit(Decimal("500"), WalletTransaction.Type.TOPUP)
+
+        order_number = self._place_order(auth_client, address)  # subtotal 80 -> total 126
+        auth_client.post(
+            reverse("payment-initiate"),
+            {"order_number": order_number, "method": "wallet"},
+        )
+        wallet.refresh_from_db()
+        assert wallet.balance == Decimal("374.00")  # 500 - 126
+
+        auth_client.post(reverse("order-cancel", kwargs={"order_number": order_number}))
+        wallet.refresh_from_db()
+        assert wallet.balance == Decimal("500.00")  # refunded to wallet
+        payment = Payment.objects.get(order__order_number=order_number)
+        assert payment.status == Payment.Status.REFUNDED
+
     def test_cancel_voids_unpaid_cod_payment(self, auth_client, cart_with_items, address):
         from apps.payments.models import Payment
 
