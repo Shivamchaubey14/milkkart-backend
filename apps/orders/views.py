@@ -9,7 +9,9 @@ from apps.cart.models import Cart
 
 from .models import DeliverySlot, Order, OrderItem
 from .serializers import CheckoutSerializer, DeliverySlotSerializer, OrderDetailSerializer, OrderListSerializer
-from .tasks import send_order_confirmation
+from .tasks import send_order_confirmation, send_order_status_update
+
+CANCELLABLE_STATUSES = (Order.Status.PENDING, Order.Status.CONFIRMED)
 
 
 @api_view(["POST"])
@@ -112,6 +114,59 @@ def order_detail(request, order_number):
         )
     except Order.DoesNotExist:
         return Response({"error": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    return Response(OrderDetailSerializer(order).data)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def cancel_order(request, order_number):
+    from apps.payments.models import Payment
+    from apps.payments.tasks import process_refund
+
+    try:
+        order = Order.objects.select_related("delivery_slot").prefetch_related("items__product").get(
+            order_number=order_number, user=request.user
+        )
+    except Order.DoesNotExist:
+        return Response({"error": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    if order.status not in CANCELLABLE_STATUSES:
+        return Response(
+            {"error": f"Order cannot be cancelled once it is {order.get_status_display().lower()}."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    with transaction.atomic():
+        # Restock products reserved at checkout.
+        for item in order.items.all():
+            if item.product:
+                item.product.stock += item.quantity
+                item.product.save(update_fields=["stock"])
+
+        # Free up the booked delivery slot.
+        if order.delivery_slot and order.delivery_slot.booked > 0:
+            order.delivery_slot.booked -= 1
+            order.delivery_slot.save(update_fields=["booked"])
+
+        # Settle the payment: refund if captured, otherwise void.
+        payment = getattr(order, "payment", None)
+        refund_payment_id = None
+        if payment:
+            if payment.status == Payment.Status.SUCCESS:
+                payment.status = Payment.Status.REFUNDED
+                payment.save(update_fields=["status", "updated_at"])
+                refund_payment_id = payment.id
+            elif payment.status in (Payment.Status.CREATED, Payment.Status.PENDING):
+                payment.status = Payment.Status.FAILED
+                payment.save(update_fields=["status", "updated_at"])
+
+        order.status = Order.Status.CANCELLED
+        order.save(update_fields=["status"])
+
+    if refund_payment_id:
+        process_refund.delay(refund_payment_id)
+    send_order_status_update.delay(order.id, Order.Status.CANCELLED)
 
     return Response(OrderDetailSerializer(order).data)
 
