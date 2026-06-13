@@ -83,6 +83,31 @@ class TestOrderTrackingConsumer:
         assert frame["status_display"] == "Out for Delivery"
         await communicator.disconnect()
 
+    async def test_receives_rider_location(self):
+        _, order, token = await create_user_and_order()
+        communicator, connected = await open_ws(order.order_number, token)
+        assert connected is True
+        await communicator.receive_json_from()  # initial status
+
+        layer = get_channel_layer()
+        await layer.group_send(
+            order_group_name(order.order_number),
+            {
+                "type": "rider.location",
+                "payload": {
+                    "type": "rider.location",
+                    "order_number": str(order.order_number),
+                    "lat": "26.449923",
+                    "lng": "80.331871",
+                },
+            },
+        )
+
+        frame = await communicator.receive_json_from()
+        assert frame["type"] == "rider.location"
+        assert frame["lat"] == "26.449923"
+        await communicator.disconnect()
+
 
 @pytest.mark.django_db
 class TestRealtimeHelpers:

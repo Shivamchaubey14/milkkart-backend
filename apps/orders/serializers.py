@@ -32,6 +32,7 @@ class OrderDetailSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     delivery_slot = DeliverySlotSerializer(read_only=True)
     coupon_code = serializers.CharField(source="coupon.code", read_only=True, default=None)
+    assignment = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
@@ -50,9 +51,27 @@ class OrderDetailSerializer(serializers.ModelSerializer):
             "delivery_slot",
             "notes",
             "items",
+            "assignment",
             "placed_at",
             "updated_at",
         ]
+
+    def get_assignment(self, obj):
+        from apps.delivery.models import DeliveryAssignment
+
+        try:
+            assignment = obj.assignment
+        except DeliveryAssignment.DoesNotExist:
+            return None
+        rider = assignment.rider
+        return {
+            "status": assignment.status,
+            "rider_phone": rider.user.phone,
+            "vehicle_number": rider.vehicle_number,
+            "delivery_otp": assignment.delivery_otp,  # shown to the rider on delivery
+            "rider_lat": str(rider.current_lat) if rider.current_lat is not None else None,
+            "rider_lng": str(rider.current_lng) if rider.current_lng is not None else None,
+        }
 
 
 class CheckoutSerializer(serializers.Serializer):

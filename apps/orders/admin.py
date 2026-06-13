@@ -22,6 +22,23 @@ def _make_status_action(new_status, description):
     return action
 
 
+@admin.action(description="Auto-assign to an available rider")
+def auto_assign_rider(modeladmin, request, queryset):
+    from apps.delivery.services import NoRiderAvailable, assign_order
+
+    assigned = 0
+    for order in queryset:
+        try:
+            assign_order(order)
+            assigned += 1
+        except NoRiderAvailable:
+            modeladmin.message_user(
+                request, f"No rider available for {order.order_number}.", level="warning"
+            )
+    if assigned:
+        modeladmin.message_user(request, f"Assigned {assigned} order(s) to riders.")
+
+
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
     list_display = ("order_number", "user", "status", "total", "placed_at")
@@ -30,6 +47,7 @@ class OrderAdmin(admin.ModelAdmin):
     readonly_fields = ("order_number", "placed_at")
     inlines = [OrderItemInline]
     actions = [
+        auto_assign_rider,
         _make_status_action("confirmed", "Mark as Confirmed"),
         _make_status_action("out_for_delivery", "Mark as Out for Delivery"),
         _make_status_action("delivered", "Mark as Delivered"),
