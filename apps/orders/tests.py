@@ -283,3 +283,110 @@ class TestOrderTasks:
 
         result = send_order_confirmation(99999)
         assert result is None
+
+
+@pytest.mark.django_db
+class TestCancelOrderAPI:
+    def _place_order(self, auth_client, address, slot_id=None):
+        payload = {"address_id": address.id}
+        if slot_id:
+            payload["delivery_slot_id"] = slot_id
+        resp = auth_client.post(reverse("order-checkout"), payload)
+        return resp.data["order_number"]
+
+    def test_cancel_restocks_and_cancels(self, auth_client, cart_with_items, address, product, product_b):
+        order_number = self._place_order(auth_client, address)
+        product.refresh_from_db()
+        assert product.stock == 8  # reserved at checkout
+
+        response = auth_client.post(reverse("order-cancel", kwargs={"order_number": order_number}))
+        assert response.status_code == 200
+        assert response.data["status"] == "cancelled"
+
+        product.refresh_from_db()
+        product_b.refresh_from_db()
+        assert product.stock == 10  # restocked
+        assert product_b.stock == 5
+
+    def test_cancel_frees_delivery_slot(self, auth_client, cart_with_items, address, delivery_slot):
+        order_number = self._place_order(auth_client, address, slot_id=delivery_slot.id)
+        delivery_slot.refresh_from_db()
+        assert delivery_slot.booked == 1
+
+        auth_client.post(reverse("order-cancel", kwargs={"order_number": order_number}))
+        delivery_slot.refresh_from_db()
+        assert delivery_slot.booked == 0
+
+    def test_cancel_refunds_paid_online_order(self, auth_client, cart_with_items, address):
+        from apps.payments import gateway
+        from apps.payments.models import Payment
+
+        order_number = self._place_order(auth_client, address)
+        init = auth_client.post(
+            reverse("payment-initiate"),
+            {"order_number": order_number, "method": "online"},
+        )
+        gw_order_id = init.data["gateway"]["order_id"]
+        gw_payment_id = "pay_abcdef"
+        auth_client.post(
+            reverse("payment-verify"),
+            {
+                "gateway_order_id": gw_order_id,
+                "gateway_payment_id": gw_payment_id,
+                "gateway_signature": gateway.sign(gw_order_id, gw_payment_id),
+            },
+        )
+
+        response = auth_client.post(reverse("order-cancel", kwargs={"order_number": order_number}))
+        assert response.status_code == 200
+        payment = Payment.objects.get(order__order_number=order_number)
+        assert payment.status == Payment.Status.REFUNDED
+
+    def test_cancel_voids_unpaid_cod_payment(self, auth_client, cart_with_items, address):
+        from apps.payments.models import Payment
+
+        order_number = self._place_order(auth_client, address)
+        auth_client.post(
+            reverse("payment-initiate"),
+            {"order_number": order_number, "method": "cod"},
+        )
+        auth_client.post(reverse("order-cancel", kwargs={"order_number": order_number}))
+        payment = Payment.objects.get(order__order_number=order_number)
+        assert payment.status == Payment.Status.FAILED
+
+    def test_cannot_cancel_delivered_order(self, auth_client, cart_with_items, address):
+        order_number = self._place_order(auth_client, address)
+        order = Order.objects.get(order_number=order_number)
+        order.status = Order.Status.DELIVERED
+        order.save()
+        response = auth_client.post(reverse("order-cancel", kwargs={"order_number": order_number}))
+        assert response.status_code == 400
+        assert "cannot be cancelled" in response.data["error"].lower()
+
+    def test_cannot_cancel_out_for_delivery_order(self, auth_client, cart_with_items, address):
+        order_number = self._place_order(auth_client, address)
+        order = Order.objects.get(order_number=order_number)
+        order.status = Order.Status.OUT_FOR_DELIVERY
+        order.save()
+        response = auth_client.post(reverse("order-cancel", kwargs={"order_number": order_number}))
+        assert response.status_code == 400
+
+    def test_cancel_not_found(self, auth_client):
+        response = auth_client.post(
+            reverse("order-cancel", kwargs={"order_number": "00000000-0000-0000-0000-000000000000"})
+        )
+        assert response.status_code == 404
+
+    def test_other_user_cannot_cancel(self, auth_client, cart_with_items, address):
+        order_number = self._place_order(auth_client, address)
+        other_user = User.objects.create_user(phone="+919876543211", name="Other")
+        other_client = APIClient()
+        other_client.force_authenticate(user=other_user)
+        response = other_client.post(reverse("order-cancel", kwargs={"order_number": order_number}))
+        assert response.status_code == 404
+
+    def test_cancel_unauthenticated(self, auth_client, cart_with_items, address):
+        order_number = self._place_order(auth_client, address)
+        client = APIClient()
+        response = client.post(reverse("order-cancel", kwargs={"order_number": order_number}))
+        assert response.status_code == 401

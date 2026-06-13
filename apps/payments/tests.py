@@ -281,3 +281,20 @@ class TestPaymentTasks:
         from apps.payments.tasks import send_payment_receipt
 
         assert send_payment_receipt(99999) is None
+
+    def test_process_refund(self, order, user):
+        from apps.payments.tasks import process_refund
+
+        payment = Payment.objects.create(
+            order=order, user=user, method=Payment.Method.ONLINE,
+            status=Payment.Status.REFUNDED, amount=order.total,
+            gateway_payment_id="pay_123456",
+        )
+        result = process_refund(payment.id)
+        assert result["status"] == "refund_processed"
+        assert result["refund_id"].startswith("rfnd_")
+
+    def test_refund_missing_payment(self):
+        from apps.payments.tasks import process_refund
+
+        assert process_refund(99999) is None
