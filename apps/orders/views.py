@@ -37,19 +37,20 @@ def checkout(request):
             return Response({"error": "Delivery slot is full."}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        cart = Cart.objects.prefetch_related("items__product").get(user=request.user)
+        cart = Cart.objects.prefetch_related("items__variant__product").get(user=request.user)
     except Cart.DoesNotExist:
         return Response({"error": "Cart is empty."}, status=status.HTTP_400_BAD_REQUEST)
 
-    cart_items = list(cart.items.select_related("product").all())
+    cart_items = list(cart.items.select_related("variant__product").all())
     if not cart_items:
         return Response({"error": "Cart is empty."}, status=status.HTTP_400_BAD_REQUEST)
 
     # Validate stock
     for item in cart_items:
-        if item.quantity > item.product.stock:
+        if item.quantity > item.variant.stock:
+            name = f"{item.variant.product.name} ({item.variant.label})"
             return Response(
-                {"error": f"'{item.product.name}' only has {item.product.stock} in stock."},
+                {"error": f"'{name}' only has {item.variant.stock} in stock."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -72,14 +73,15 @@ def checkout(request):
             order_items.append(
                 OrderItem(
                     order=order,
-                    product=item.product,
-                    product_name=item.product.name,
-                    product_price=item.product.price,
+                    variant=item.variant,
+                    product_name=item.variant.product.name,
+                    variant_label=item.variant.label,
+                    product_price=item.variant.price,
                     quantity=item.quantity,
                 )
             )
-            item.product.stock -= item.quantity
-            item.product.save(update_fields=["stock"])
+            item.variant.stock -= item.quantity
+            item.variant.save(update_fields=["stock"])
 
         OrderItem.objects.bulk_create(order_items)
 
@@ -125,7 +127,7 @@ def cancel_order(request, order_number):
     from apps.payments.tasks import process_refund
 
     try:
-        order = Order.objects.select_related("delivery_slot").prefetch_related("items__product").get(
+        order = Order.objects.select_related("delivery_slot").prefetch_related("items__variant").get(
             order_number=order_number, user=request.user
         )
     except Order.DoesNotExist:
@@ -138,11 +140,11 @@ def cancel_order(request, order_number):
         )
 
     with transaction.atomic():
-        # Restock products reserved at checkout.
+        # Restock variants reserved at checkout.
         for item in order.items.all():
-            if item.product:
-                item.product.stock += item.quantity
-                item.product.save(update_fields=["stock"])
+            if item.variant:
+                item.variant.stock += item.quantity
+                item.variant.save(update_fields=["stock"])
 
         # Free up the booked delivery slot.
         if order.delivery_slot and order.delivery_slot.booked > 0:

@@ -76,13 +76,14 @@ class Order(models.Model):
 
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items")
-    product = models.ForeignKey(
-        "catalog.Product",
+    variant = models.ForeignKey(
+        "catalog.ProductVariant",
         on_delete=models.SET_NULL,
         null=True,
         related_name="order_items",
     )
     product_name = models.CharField(max_length=200)
+    variant_label = models.CharField(max_length=100, blank=True, default="")
     product_price = models.DecimalField(max_digits=8, decimal_places=2)
     quantity = models.PositiveIntegerField()
 
@@ -90,7 +91,8 @@ class OrderItem(models.Model):
         db_table = "order_items"
 
     def __str__(self):
-        return f"{self.product_name} x{self.quantity}"
+        label = f" ({self.variant_label})" if self.variant_label else ""
+        return f"{self.product_name}{label} x{self.quantity}"
 
     @property
     def subtotal(self):
