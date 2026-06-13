@@ -1,15 +1,17 @@
-from datetime import date, time
+from datetime import date, time, timedelta
 from decimal import Decimal
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.addresses.models import Address
 from apps.cart.models import Cart, CartItem
 from apps.catalog.models import Category, Product, ProductVariant
 from apps.orders.models import DeliverySlot, Order
+from apps.promotions.models import Coupon, CouponRedemption
 
 User = get_user_model()
 
@@ -136,7 +138,9 @@ class TestCheckoutAPI:
             {"address_id": address.id},
         )
         assert response.status_code == 201
-        assert Decimal(response.data["total"]) == Decimal("80.00")
+        # subtotal 80 + delivery 25 + small-cart 15 + 5% tax (6.00) = 126.00
+        assert Decimal(response.data["subtotal"]) == Decimal("80.00")
+        assert Decimal(response.data["total"]) == Decimal("126.00")
         assert "42 Dairy Lane" in response.data["address_snapshot"]
         assert len(response.data["items"]) == 2
 
@@ -210,6 +214,29 @@ class TestCheckoutAPI:
         )
         assert response.status_code == 201
         assert response.data["notes"] == "Ring the bell"
+
+    def test_checkout_applies_coupon(self, auth_client, user, cart_with_items, address):
+        now = timezone.now()
+        coupon = Coupon.objects.create(
+            code="FLAT20", discount_type=Coupon.DiscountType.FLAT, value=Decimal("20"),
+            valid_from=now - timedelta(days=1), valid_until=now + timedelta(days=1),
+        )
+        cart_with_items.applied_coupon = coupon
+        cart_with_items.save()
+
+        response = auth_client.post(reverse("order-checkout"), {"address_id": address.id})
+        assert response.status_code == 201
+        # subtotal 80, -20 coupon, +25 delivery +15 small-cart, +5% tax (5.00) = 105.00
+        assert Decimal(response.data["discount"]) == Decimal("20.00")
+        assert Decimal(response.data["total"]) == Decimal("105.00")
+        assert response.data["coupon_code"] == "FLAT20"
+
+        order = Order.objects.get(order_number=response.data["order_number"])
+        assert CouponRedemption.objects.filter(coupon=coupon, order=order).count() == 1
+        coupon.refresh_from_db()
+        assert coupon.times_used == 1
+        cart_with_items.refresh_from_db()
+        assert cart_with_items.applied_coupon is None
 
 
 @pytest.mark.django_db
