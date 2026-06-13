@@ -4,7 +4,7 @@ import pytest
 from django.urls import reverse
 from rest_framework.test import APIClient
 
-from apps.catalog.models import Category, Product, ProductImage
+from apps.catalog.models import Category, Product, ProductImage, ProductVariant
 
 
 @pytest.fixture
@@ -19,28 +19,29 @@ def category_inactive(db):
 
 @pytest.fixture
 def product(db, category):
-    return Product.objects.create(
-        category=category,
-        name="Full Cream Milk 500ml",
-        price=Decimal("28.00"),
-        mrp=Decimal("30.00"),
-        unit=Product.Unit.ML,
-        quantity_value=500,
-        stock=100,
+    p = Product.objects.create(category=category, name="Full Cream Milk", brand="Amul")
+    ProductVariant.objects.create(
+        product=p, label="500 ml", sku="full-cream-milk-500ml",
+        unit=ProductVariant.Unit.ML, quantity_value=500, fat_percent=Decimal("6.0"),
+        price=Decimal("28.00"), mrp=Decimal("30.00"), stock=100, is_default=True,
     )
+    ProductVariant.objects.create(
+        product=p, label="1 L", sku="full-cream-milk-1l",
+        unit=ProductVariant.Unit.L, quantity_value=1, fat_percent=Decimal("6.0"),
+        price=Decimal("54.00"), mrp=Decimal("58.00"), stock=80,
+    )
+    return p
 
 
 @pytest.fixture
 def product_out_of_stock(db, category):
-    return Product.objects.create(
-        category=category,
-        name="Toned Milk 1L",
-        price=Decimal("50.00"),
-        mrp=Decimal("55.00"),
-        unit=Product.Unit.L,
-        quantity_value=1,
-        stock=0,
+    p = Product.objects.create(category=category, name="Toned Milk", brand="Amul")
+    ProductVariant.objects.create(
+        product=p, label="1 L", sku="toned-milk-1l",
+        unit=ProductVariant.Unit.L, quantity_value=1,
+        price=Decimal("50.00"), mrp=Decimal("55.00"), stock=0, is_default=True,
     )
+    return p
 
 
 @pytest.mark.django_db
@@ -61,32 +62,56 @@ class TestCategoryModel:
 @pytest.mark.django_db
 class TestProductModel:
     def test_str(self, product):
-        assert str(product) == "Full Cream Milk 500ml"
+        assert str(product) == "Full Cream Milk"
 
     def test_auto_slug(self, product):
-        assert product.slug == "full-cream-milk-500ml"
+        assert product.slug == "full-cream-milk"
+
+    def test_default_variant_prefers_flagged(self, product):
+        assert product.default_variant.sku == "full-cream-milk-500ml"
+
+    def test_default_variant_falls_back_to_cheapest(self, category):
+        p = Product.objects.create(category=category, name="No Default")
+        ProductVariant.objects.create(
+            product=p, label="big", sku="nd-big", price=Decimal("90"), mrp=Decimal("90"), stock=1
+        )
+        ProductVariant.objects.create(
+            product=p, label="small", sku="nd-small", price=Decimal("40"), mrp=Decimal("40"), stock=1
+        )
+        assert p.default_variant.sku == "nd-small"
+
+    def test_default_variant_none_when_no_active(self, category):
+        p = Product.objects.create(category=category, name="Empty")
+        assert p.default_variant is None
+
+
+@pytest.mark.django_db
+class TestProductVariantModel:
+    def test_str(self, product):
+        variant = product.variants.get(sku="full-cream-milk-500ml")
+        assert str(variant) == "Full Cream Milk — 500 ml"
 
     def test_discount_percent(self, product):
-        assert float(product.discount_percent) == 6.7
+        variant = product.variants.get(sku="full-cream-milk-500ml")
+        assert float(variant.discount_percent) == 6.7
 
     def test_discount_percent_zero_mrp(self, category):
-        p = Product.objects.create(
-            category=category, name="Free Sample", price=Decimal("0"), mrp=Decimal("0"), stock=1
+        p = Product.objects.create(category=category, name="Free Sample")
+        v = ProductVariant.objects.create(
+            product=p, label="x", sku="free", price=Decimal("0"), mrp=Decimal("0"), stock=1
         )
-        assert p.discount_percent == 0
+        assert v.discount_percent == 0
 
-    def test_in_stock_true(self, product):
-        assert product.in_stock is True
-
-    def test_in_stock_false(self, product_out_of_stock):
-        assert product_out_of_stock.in_stock is False
+    def test_in_stock(self, product, product_out_of_stock):
+        assert product.variants.get(sku="full-cream-milk-500ml").in_stock is True
+        assert product_out_of_stock.variants.first().in_stock is False
 
 
 @pytest.mark.django_db
 class TestProductImageModel:
     def test_str(self, product):
         img = ProductImage.objects.create(product=product, image="test.jpg", sort_order=0)
-        assert str(img) == "Full Cream Milk 500ml - Image 0"
+        assert str(img) == "Full Cream Milk - Image 0"
 
 
 @pytest.mark.django_db
@@ -123,6 +148,13 @@ class TestProductListAPI:
         assert response.status_code == 200
         assert len(response.data["results"]) == 1
 
+    def test_card_shows_default_variant(self, product):
+        response = self.client.get(self.url)
+        card = response.data["results"][0]
+        assert card["default_variant"]["sku"] == "full-cream-milk-500ml"
+        assert Decimal(card["default_variant"]["price"]) == Decimal("28.00")
+        assert card["variant_count"] == 2
+
     def test_filter_by_category(self, product):
         response = self.client.get(self.url, {"category": product.category_id})
         assert len(response.data["results"]) == 1
@@ -134,27 +166,27 @@ class TestProductListAPI:
     def test_filter_in_stock(self, product, product_out_of_stock):
         response = self.client.get(self.url, {"in_stock": "true"})
         slugs = [p["slug"] for p in response.data["results"]]
-        assert "full-cream-milk-500ml" in slugs
-        assert "toned-milk-1l" not in slugs
+        assert "full-cream-milk" in slugs
+        assert "toned-milk" not in slugs
 
     def test_filter_by_price_range(self, product, product_out_of_stock):
-        response = self.client.get(self.url, {"min_price": 40, "max_price": 60})
-        assert len(response.data["results"]) == 1
-        assert response.data["results"][0]["slug"] == "toned-milk-1l"
+        # Filters on starting price: Toned starts at 50, Full Cream at 28.
+        response = self.client.get(self.url, {"min_price": 40, "max_price": 52})
+        slugs = [p["slug"] for p in response.data["results"]]
+        assert "toned-milk" in slugs
+        assert "full-cream-milk" not in slugs
 
     def test_search(self, product, product_out_of_stock):
         response = self.client.get(self.url, {"search": "Full Cream"})
         assert len(response.data["results"]) == 1
 
-    def test_ordering_by_price(self, product, product_out_of_stock):
-        response = self.client.get(self.url, {"ordering": "price"})
-        prices = [r["price"] for r in response.data["results"]]
-        assert prices == sorted(prices)
+    def test_ordering_by_min_price(self, product, product_out_of_stock):
+        response = self.client.get(self.url, {"ordering": "min_price"})
+        first = response.data["results"][0]
+        assert first["slug"] == "full-cream-milk"  # cheapest variant 28 < 50
 
     def test_excludes_inactive_products(self, category):
-        Product.objects.create(
-            category=category, name="Hidden", price=Decimal("10"), mrp=Decimal("10"), is_active=False
-        )
+        Product.objects.create(category=category, name="Hidden", is_active=False)
         response = self.client.get(self.url)
         assert len(response.data["results"]) == 0
 
@@ -168,9 +200,9 @@ class TestProductDetailAPI:
         url = reverse("product-detail", kwargs={"slug": product.slug})
         response = self.client.get(url)
         assert response.status_code == 200
-        assert response.data["name"] == "Full Cream Milk 500ml"
-        assert response.data["discount_percent"] == 6.7
-        assert response.data["in_stock"] is True
+        assert response.data["name"] == "Full Cream Milk"
+        assert len(response.data["variants"]) == 2
+        assert response.data["variants"][0]["discount_percent"] == 6.7
         assert "images" in response.data
         assert "category" in response.data
 
