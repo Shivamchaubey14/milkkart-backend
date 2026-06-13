@@ -28,3 +28,22 @@ def broadcast_order_status(order):
         order_group_name(order.order_number),
         {"type": GROUP_EVENT, "payload": order_status_payload(order)},
     )
+
+
+def broadcast_rider_location(order_number, lat, lng):
+    """Push a rider's live location to the customer tracking the given order."""
+    layer = get_channel_layer()
+    if layer is None:
+        return
+    async_to_sync(layer.group_send)(
+        order_group_name(order_number),
+        {
+            "type": "rider.location",
+            "payload": {
+                "type": "rider.location",
+                "order_number": str(order_number),
+                "lat": str(lat),
+                "lng": str(lng),
+            },
+        },
+    )
