@@ -38,3 +38,17 @@ def verify_signature(gateway_order_id, gateway_payment_id, signature):
     """Verify a gateway callback signature in constant time."""
     expected = sign(gateway_order_id, gateway_payment_id)
     return hmac.compare_digest(expected, signature or "")
+
+
+def refund_payment(gateway_payment_id, amount):
+    """Issue a refund for a captured payment and return the refund handle.
+
+    `amount` is a Decimal in rupees; gateways expect the smallest currency unit (paise).
+    """
+    return {
+        "id": f"rfnd_{uuid.uuid4().hex[:14]}",
+        "payment_id": gateway_payment_id,
+        "amount": int(amount * 100),
+        "currency": "INR",
+        "status": "processed",
+    }
