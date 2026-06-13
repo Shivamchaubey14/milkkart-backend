@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     "apps.catalog",
     "apps.core",
     "apps.orders",
+    "apps.payments",
 ]
 
 MIDDLEWARE = [
@@ -141,6 +142,10 @@ SIMPLE_JWT = {
 
 OTP_LENGTH = 6
 OTP_EXPIRY_MINUTES = 5
+
+# Payment gateway (mock — swap for real Razorpay/Stripe credentials in prod)
+PAYMENT_GATEWAY_KEY_ID = os.environ.get("PAYMENT_GATEWAY_KEY_ID", "rzp_test_key")
+PAYMENT_GATEWAY_SECRET = os.environ.get("PAYMENT_GATEWAY_SECRET", "test_gateway_secret")
 
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:3000").split(",")
