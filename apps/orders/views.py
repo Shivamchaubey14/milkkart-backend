@@ -5,7 +5,9 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.addresses.models import Address
+from apps.cart.billing import compute_bill
 from apps.cart.models import Cart
+from apps.promotions.models import Coupon, CouponRedemption
 
 from .models import DeliverySlot, Order, OrderItem
 from .serializers import CheckoutSerializer, DeliverySlotSerializer, OrderDetailSerializer, OrderListSerializer
@@ -37,7 +39,11 @@ def checkout(request):
             return Response({"error": "Delivery slot is full."}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        cart = Cart.objects.prefetch_related("items__variant__product").get(user=request.user)
+        cart = (
+            Cart.objects.select_related("applied_coupon")
+            .prefetch_related("items__variant__product")
+            .get(user=request.user)
+        )
     except Cart.DoesNotExist:
         return Response({"error": "Cart is empty."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -56,12 +62,20 @@ def checkout(request):
 
     address_snapshot = f"{address.address_line}, {address.landmark}, {address.city}, {address.state} {address.pincode}"
 
-    with transaction.atomic():
-        total = sum(item.subtotal for item in cart_items)
+    bill = compute_bill(cart)
+    # A coupon is only charged if it was still eligible at checkout time.
+    coupon = cart.applied_coupon if bill["coupon_code"] else None
 
+    with transaction.atomic():
         order = Order.objects.create(
             user=request.user,
-            total=total,
+            subtotal=bill["subtotal"],
+            discount=bill["coupon_discount"],
+            delivery_fee=bill["delivery_fee"],
+            small_cart_fee=bill["small_cart_fee"],
+            tax=bill["tax"],
+            total=bill["grand_total"],
+            coupon=coupon,
             address=address,
             address_snapshot=address_snapshot,
             delivery_slot=delivery_slot,
@@ -89,6 +103,17 @@ def checkout(request):
             delivery_slot.booked += 1
             delivery_slot.save(update_fields=["booked"])
 
+        if coupon:
+            CouponRedemption.objects.create(
+                coupon=coupon,
+                user=request.user,
+                order=order,
+                discount_amount=bill["coupon_discount"],
+            )
+            Coupon.objects.filter(pk=coupon.pk).update(times_used=models.F("times_used") + 1)
+
+        cart.applied_coupon = None
+        cart.save(update_fields=["applied_coupon", "updated_at"])
         cart.items.all().delete()
 
     send_order_confirmation.delay(order.id)

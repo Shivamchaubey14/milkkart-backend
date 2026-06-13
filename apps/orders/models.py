@@ -47,7 +47,19 @@ class Order(models.Model):
         choices=Status.choices,
         default=Status.PENDING,
     )
-    total = models.DecimalField(max_digits=10, decimal_places=2)
+    subtotal = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    discount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    small_cart_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    tax = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    total = models.DecimalField(max_digits=10, decimal_places=2, help_text="Grand total payable")
+    coupon = models.ForeignKey(
+        "promotions.Coupon",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="orders",
+    )
     address = models.ForeignKey(
         "addresses.Address",
         on_delete=models.SET_NULL,
