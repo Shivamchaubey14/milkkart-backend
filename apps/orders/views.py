@@ -150,6 +150,7 @@ def order_detail(request, order_number):
 def cancel_order(request, order_number):
     from apps.payments.models import Payment
     from apps.payments.tasks import process_refund
+    from apps.wallet.models import WalletTransaction, get_or_create_wallet
 
     try:
         order = Order.objects.select_related("delivery_slot").prefetch_related("items__variant").get(
@@ -183,7 +184,17 @@ def cancel_order(request, order_number):
             if payment.status == Payment.Status.SUCCESS:
                 payment.status = Payment.Status.REFUNDED
                 payment.save(update_fields=["status", "updated_at"])
-                refund_payment_id = payment.id
+                if payment.method == Payment.Method.WALLET:
+                    # Money came from the wallet — return it there immediately.
+                    wallet = get_or_create_wallet(order.user)
+                    wallet.credit(
+                        payment.amount,
+                        WalletTransaction.Type.REFUND,
+                        description=f"Refund for order {order.order_number}",
+                        order=order,
+                    )
+                else:
+                    refund_payment_id = payment.id
             elif payment.status in (Payment.Status.CREATED, Payment.Status.PENDING):
                 payment.status = Payment.Status.FAILED
                 payment.save(update_fields=["status", "updated_at"])

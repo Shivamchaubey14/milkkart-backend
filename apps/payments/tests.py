@@ -163,6 +163,40 @@ class TestInitiatePayment:
 
 
 @pytest.mark.django_db
+class TestWalletPayment:
+    def test_pay_with_wallet(self, auth_client, order, user):
+        from apps.wallet.models import WalletTransaction, get_or_create_wallet
+
+        wallet = get_or_create_wallet(user)
+        wallet.credit(Decimal("200"), WalletTransaction.Type.TOPUP)
+
+        response = auth_client.post(
+            reverse("payment-initiate"),
+            {"order_number": str(order.order_number), "method": "wallet"},
+        )
+        assert response.status_code == 201
+        assert response.data["status"] == "success"
+
+        wallet.refresh_from_db()
+        assert wallet.balance == Decimal("120.00")  # 200 - 80
+        order.refresh_from_db()
+        assert order.status == Order.Status.CONFIRMED
+
+    def test_pay_with_wallet_insufficient(self, auth_client, order, user):
+        from apps.wallet.models import get_or_create_wallet
+
+        get_or_create_wallet(user)  # balance 0
+        response = auth_client.post(
+            reverse("payment-initiate"),
+            {"order_number": str(order.order_number), "method": "wallet"},
+        )
+        assert response.status_code == 400
+        assert "insufficient" in response.data["error"].lower()
+        order.refresh_from_db()
+        assert order.status == Order.Status.PENDING
+
+
+@pytest.mark.django_db
 class TestVerifyPayment:
     def _initiate_online(self, auth_client, order):
         resp = auth_client.post(
