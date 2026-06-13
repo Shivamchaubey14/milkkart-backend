@@ -50,6 +50,22 @@ class TestSeedCatalogCommand:
 
 
 @pytest.mark.django_db
+class TestSeedCouponsCommand:
+    def test_seed_coupons(self):
+        from apps.promotions.models import Coupon
+
+        call_command("seed_coupons")
+        assert Coupon.objects.count() == 3
+
+    def test_seed_coupons_idempotent(self):
+        from apps.promotions.models import Coupon
+
+        call_command("seed_coupons")
+        call_command("seed_coupons")
+        assert Coupon.objects.count() == 3
+
+
+@pytest.mark.django_db
 class TestSeedSlotsCommand:
     def test_seed_slots(self):
         call_command("seed_slots", "--days=3")

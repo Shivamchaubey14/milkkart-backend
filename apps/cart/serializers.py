@@ -2,6 +2,7 @@ from rest_framework import serializers
 
 from apps.catalog.models import ProductVariant
 
+from .billing import compute_bill
 from .models import Cart, CartItem
 
 
@@ -33,12 +34,19 @@ class CartItemSerializer(serializers.ModelSerializer):
 
 class CartSerializer(serializers.ModelSerializer):
     items = CartItemSerializer(many=True, read_only=True)
-    total = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    coupon_code = serializers.SerializerMethodField()
+    bill = serializers.SerializerMethodField()
     item_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Cart
-        fields = ["id", "items", "total", "item_count"]
+        fields = ["id", "items", "coupon_code", "bill", "item_count"]
+
+    def get_coupon_code(self, obj):
+        return obj.applied_coupon.code if obj.applied_coupon else None
+
+    def get_bill(self, obj):
+        return compute_bill(obj)
 
 
 class AddToCartSerializer(serializers.Serializer):
