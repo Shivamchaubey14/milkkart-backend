@@ -10,3 +10,4 @@ select = ["E", "F", "I", "W"]
 DJANGO_SETTINGS_MODULE = "config.settings.test"
 python_files = ["tests.py", "test_*.py"]
 pythonpath = ["."]
+asyncio_mode = "auto"

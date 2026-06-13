@@ -2,6 +2,8 @@ import logging
 
 from celery import shared_task
 
+from .realtime import broadcast_order_status
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,6 +24,7 @@ def send_order_confirmation(order_id):
         order.user.phone,
         order.total,
     )
+    broadcast_order_status(order)
     return {"order_id": order_id, "status": "confirmation_sent"}
 
 
@@ -42,4 +45,5 @@ def send_order_status_update(order_id, new_status):
         new_status,
         order.user.phone,
     )
+    broadcast_order_status(order)
     return {"order_id": order_id, "new_status": new_status, "status": "notification_sent"}
