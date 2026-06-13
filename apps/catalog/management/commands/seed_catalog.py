@@ -1,58 +1,78 @@
 from decimal import Decimal
 
 from django.core.management.base import BaseCommand
+from django.utils.text import slugify
 
-from apps.catalog.models import Category, Product
+from apps.catalog.models import Category, Product, ProductVariant
 
+# category -> list of products; each product: (name, brand, fat%, [variants])
+# variant: (label, price, mrp, unit, quantity_value)
 CATALOG = {
     "Milk": [
-        ("Full Cream Milk 500ml", 28, 30, "ml", 500),
-        ("Full Cream Milk 1L", 54, 58, "l", 1),
-        ("Toned Milk 500ml", 24, 26, "ml", 500),
-        ("Toned Milk 1L", 46, 50, "l", 1),
-        ("Skimmed Milk 500ml", 22, 24, "ml", 500),
+        ("Full Cream Milk", "Amul", "6.0", [
+            ("500 ml", 28, 30, "ml", 500),
+            ("1 L", 54, 58, "l", 1),
+        ]),
+        ("Toned Milk", "Amul", "3.0", [
+            ("500 ml", 24, 26, "ml", 500),
+            ("1 L", 46, 50, "l", 1),
+        ]),
+        ("Skimmed Milk", "Mother Dairy", "0.5", [
+            ("500 ml", 22, 24, "ml", 500),
+        ]),
     ],
     "Curd & Yogurt": [
-        ("Fresh Curd 400g", 35, 38, "g", 400),
-        ("Fresh Curd 1kg", 75, 80, "kg", 1),
-        ("Greek Yogurt 100g", 45, 50, "g", 100),
-        ("Mango Lassi 200ml", 30, 35, "ml", 200),
-        ("Buttermilk 500ml", 20, 22, "ml", 500),
+        ("Fresh Curd", "Amul", None, [
+            ("400 g", 35, 38, "g", 400),
+            ("1 kg", 75, 80, "kg", 1),
+        ]),
+        ("Greek Yogurt", "Epigamia", None, [("100 g", 45, 50, "g", 100)]),
+        ("Mango Lassi", "Amul", None, [("200 ml", 30, 35, "ml", 200)]),
+        ("Buttermilk", "Mother Dairy", None, [("500 ml", 20, 22, "ml", 500)]),
     ],
     "Paneer & Cheese": [
-        ("Fresh Paneer 200g", 80, 90, "g", 200),
-        ("Fresh Paneer 500g", 180, 200, "g", 500),
-        ("Mozzarella Cheese 200g", 120, 135, "g", 200),
-        ("Cheese Slices 10pcs", 95, 105, "pcs", 10),
-        ("Cream Cheese 200g", 110, 125, "g", 200),
+        ("Fresh Paneer", "Amul", None, [
+            ("200 g", 80, 90, "g", 200),
+            ("500 g", 180, 200, "g", 500),
+        ]),
+        ("Mozzarella Cheese", "Go", None, [("200 g", 120, 135, "g", 200)]),
+        ("Cheese Slices", "Amul", None, [("Pack of 10", 95, 105, "pcs", 10)]),
+        ("Cream Cheese", "Britannia", None, [("200 g", 110, 125, "g", 200)]),
     ],
     "Butter & Ghee": [
-        ("Salted Butter 100g", 52, 56, "g", 100),
-        ("Salted Butter 500g", 245, 265, "g", 500),
-        ("Unsalted Butter 100g", 55, 60, "g", 100),
-        ("Pure Desi Ghee 500ml", 320, 350, "ml", 500),
-        ("Pure Desi Ghee 1L", 620, 680, "l", 1),
+        ("Salted Butter", "Amul", None, [
+            ("100 g", 52, 56, "g", 100),
+            ("500 g", 245, 265, "g", 500),
+        ]),
+        ("Unsalted Butter", "Amul", None, [("100 g", 55, 60, "g", 100)]),
+        ("Pure Desi Ghee", "Amul", None, [
+            ("500 ml", 320, 350, "ml", 500),
+            ("1 L", 620, 680, "l", 1),
+        ]),
     ],
     "Cream & Condensed": [
-        ("Fresh Cream 200ml", 55, 60, "ml", 200),
-        ("Whipping Cream 250ml", 85, 95, "ml", 250),
-        ("Condensed Milk 200g", 60, 65, "g", 200),
-        ("Malai 100g", 40, 45, "g", 100),
+        ("Fresh Cream", "Amul", None, [("200 ml", 55, 60, "ml", 200)]),
+        ("Whipping Cream", "Rich's", None, [("250 ml", 85, 95, "ml", 250)]),
+        ("Condensed Milk", "Nestle", None, [("200 g", 60, 65, "g", 200)]),
+        ("Malai", "Mother Dairy", None, [("100 g", 40, 45, "g", 100)]),
     ],
     "Ice Cream": [
-        ("Vanilla Cup 100ml", 30, 35, "ml", 100),
-        ("Chocolate Cone", 40, 45, "pcs", 1),
-        ("Mango Bar", 25, 30, "pcs", 1),
-        ("Family Pack Vanilla 1L", 180, 200, "l", 1),
-        ("Butterscotch Tub 500ml", 120, 140, "ml", 500),
+        ("Vanilla Ice Cream", "Kwality Walls", None, [
+            ("Cup 100 ml", 30, 35, "ml", 100),
+            ("Family Pack 1 L", 180, 200, "l", 1),
+        ]),
+        ("Chocolate Cone", "Kwality Walls", None, [("1 piece", 40, 45, "pcs", 1)]),
+        ("Mango Bar", "Kwality Walls", None, [("1 piece", 25, 30, "pcs", 1)]),
+        ("Butterscotch Tub", "Amul", None, [("500 ml", 120, 140, "ml", 500)]),
     ],
 }
 
 
 class Command(BaseCommand):
-    help = "Seed the catalog with dairy categories and products"
+    help = "Seed the catalog with dairy categories, products and variants (SKUs)"
 
     def handle(self, *args, **options):
+        variant_count = 0
         for sort_order, (cat_name, products) in enumerate(CATALOG.items()):
             category, created = Category.objects.get_or_create(
                 name=cat_name,
@@ -61,20 +81,35 @@ class Command(BaseCommand):
             action = "Created" if created else "Exists"
             self.stdout.write(f"  {action} category: {cat_name}")
 
-            for name, price, mrp, unit, qty in products:
-                _, p_created = Product.objects.get_or_create(
+            for name, brand, fat, variants in products:
+                product, _ = Product.objects.get_or_create(
                     name=name,
-                    defaults={
-                        "category": category,
-                        "price": Decimal(str(price)),
-                        "mrp": Decimal(str(mrp)),
-                        "unit": unit,
-                        "quantity_value": Decimal(str(qty)),
-                        "stock": 50,
-                    },
+                    defaults={"category": category, "brand": brand},
                 )
-                if p_created:
-                    self.stdout.write(f"    + {name}")
+                product_slug = slugify(name)
+                for idx, (label, price, mrp, unit, qty) in enumerate(variants):
+                    _, v_created = ProductVariant.objects.get_or_create(
+                        sku=f"{product_slug}-{slugify(label)}",
+                        defaults={
+                            "product": product,
+                            "label": label,
+                            "price": Decimal(str(price)),
+                            "mrp": Decimal(str(mrp)),
+                            "unit": unit,
+                            "quantity_value": Decimal(str(qty)),
+                            "fat_percent": Decimal(fat) if fat else None,
+                            "stock": 50,
+                            "is_default": idx == 0,
+                        },
+                    )
+                    if v_created:
+                        variant_count += 1
+                        self.stdout.write(f"    + {name} — {label}")
 
-        total = Product.objects.count()
-        self.stdout.write(self.style.SUCCESS(f"\nDone! {total} products in catalog."))
+        products_total = Product.objects.count()
+        variants_total = ProductVariant.objects.count()
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"\nDone! {products_total} products, {variants_total} variants in catalog."
+            )
+        )
