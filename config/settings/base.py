@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     "apps.wallet",
     "apps.delivery",
     "apps.notifications",
+    "apps.subscriptions",
 ]
 
 MIDDLEWARE = [
