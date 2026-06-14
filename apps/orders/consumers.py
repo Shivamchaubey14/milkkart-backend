@@ -36,6 +36,9 @@ class OrderTrackingConsumer(AsyncWebsocketConsumer):
     async def order_status(self, event):
         await self.send(text_data=json.dumps(event["payload"]))
 
+    async def rider_location(self, event):
+        await self.send(text_data=json.dumps(event["payload"]))
+
     @database_sync_to_async
     def _get_order(self):
         return Order.objects.filter(order_number=self.order_number, user=self.user).first()
