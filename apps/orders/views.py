@@ -10,6 +10,7 @@ from apps.cart.models import Cart
 from apps.inventory.models import StockMovement
 from apps.inventory.services import adjust_stock
 from apps.promotions.models import Coupon, CouponRedemption
+from apps.serviceability.services import is_serviceable
 
 from .models import DeliverySlot, Order, OrderItem
 from .serializers import CheckoutSerializer, DeliverySlotSerializer, OrderDetailSerializer, OrderListSerializer
@@ -29,6 +30,12 @@ def checkout(request):
         address = Address.objects.get(id=serializer.validated_data["address_id"], user=request.user)
     except Address.DoesNotExist:
         return Response({"error": "Address not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if not is_serviceable(address):
+        return Response(
+            {"error": "We don't deliver to this address yet."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     # Validate delivery slot (optional)
     delivery_slot = None
