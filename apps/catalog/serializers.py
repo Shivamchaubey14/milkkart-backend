@@ -43,6 +43,8 @@ class ProductListSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source="category.name", read_only=True)
     default_variant = serializers.SerializerMethodField()
     variant_count = serializers.SerializerMethodField()
+    rating_average = serializers.FloatField(read_only=True)
+    rating_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Product
@@ -55,6 +57,8 @@ class ProductListSerializer(serializers.ModelSerializer):
             "category_name",
             "default_variant",
             "variant_count",
+            "rating_average",
+            "rating_count",
         ]
 
     def get_default_variant(self, obj):
@@ -69,6 +73,8 @@ class ProductDetailSerializer(serializers.ModelSerializer):
     category = CategorySerializer(read_only=True)
     images = ProductImageSerializer(many=True, read_only=True)
     variants = serializers.SerializerMethodField()
+    rating_average = serializers.FloatField(read_only=True)
+    rating_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Product
@@ -82,6 +88,8 @@ class ProductDetailSerializer(serializers.ModelSerializer):
             "category",
             "images",
             "variants",
+            "rating_average",
+            "rating_count",
             "created_at",
         ]
 
