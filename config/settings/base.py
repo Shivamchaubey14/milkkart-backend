@@ -174,6 +174,9 @@ LOW_STOCK_THRESHOLD = int(os.environ.get("LOW_STOCK_THRESHOLD", "10"))
 # Serviceability: enforce the delivery-area gate at checkout / subscription create.
 SERVICEABILITY_ENFORCED = os.environ.get("SERVICEABILITY_ENFORCED", "true").lower() == "true"
 
+# Catalog response cache lifetime (seconds); invalidated on any catalog write.
+CATALOG_CACHE_TTL = int(os.environ.get("CATALOG_CACHE_TTL", "300"))
+
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:3000").split(",")
 

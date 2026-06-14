@@ -210,3 +210,51 @@ class TestProductDetailAPI:
         url = reverse("product-detail", kwargs={"slug": "nonexistent"})
         response = self.client.get(url)
         assert response.status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# Response caching & invalidation
+# --------------------------------------------------------------------------- #
+from apps.catalog import cache as catalog_cache  # noqa: E402
+
+
+@pytest.mark.django_db
+class TestCatalogCaching:
+    def test_product_detail_is_cached(self, product):
+        client = APIClient()
+        url = reverse("product-detail", args=[product.slug])
+        assert client.get(url).data["name"] == "Full Cream Milk"
+
+        # Bypass save() so no invalidation fires — a cache hit returns stale data.
+        Product.objects.filter(pk=product.pk).update(name="Renamed Milk")
+        assert client.get(url).data["name"] == "Full Cream Milk"
+
+    def test_save_invalidates_product_detail(self, product):
+        client = APIClient()
+        url = reverse("product-detail", args=[product.slug])
+        client.get(url)  # prime cache
+
+        product.name = "Renamed Milk"
+        product.save()  # post_save bumps the version
+        assert client.get(url).data["name"] == "Renamed Milk"
+
+    def test_product_list_cached_per_querystring(self, product):
+        client = APIClient()
+        list_url = reverse("product-list")
+        assert client.get(list_url).data["count"] == 1
+
+        # A different querystring is a different cache key (and currently empty).
+        assert client.get(list_url, {"search": "nothing-matches"}).data["count"] == 0
+
+    def test_new_product_invalidates_list(self, product, category):
+        client = APIClient()
+        list_url = reverse("product-list")
+        assert client.get(list_url).data["count"] == 1
+
+        Product.objects.create(category=category, name="Skimmed Milk")  # post_save bump
+        assert client.get(list_url).data["count"] == 2
+
+    def test_variant_save_bumps_version(self, product):
+        before = catalog_cache.get_version()
+        product.variants.first().save()
+        assert catalog_cache.get_version() > before
