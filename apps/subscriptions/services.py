@@ -163,8 +163,17 @@ def generate_for_subscription(subscription, date):
                 raise OutOfStock()
 
             order, total = _create_order(subscription, variant, quantity, date)
-            variant.stock -= quantity
-            variant.save(update_fields=["stock"])
+            # Variant is already row-locked above; record the draw on the ledger.
+            from apps.inventory.models import StockMovement
+            from apps.inventory.services import adjust_stock
+
+            adjust_stock(
+                variant,
+                -quantity,
+                StockMovement.Reason.SUBSCRIPTION,
+                order=order,
+                lock=False,
+            )
 
             wallet = get_or_create_wallet(subscription.user)
             wallet.debit(
