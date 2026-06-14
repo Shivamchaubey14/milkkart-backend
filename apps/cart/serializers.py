@@ -9,6 +9,7 @@ from .models import Cart, CartItem
 class CartItemSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source="variant.product.name", read_only=True)
     product_slug = serializers.CharField(source="variant.product.slug", read_only=True)
+    image_url = serializers.CharField(source="variant.product.image_url", read_only=True)
     variant_label = serializers.CharField(source="variant.label", read_only=True)
     sku = serializers.CharField(source="variant.sku", read_only=True)
     price = serializers.DecimalField(
@@ -23,6 +24,7 @@ class CartItemSerializer(serializers.ModelSerializer):
             "variant",
             "product_name",
             "product_slug",
+            "image_url",
             "variant_label",
             "sku",
             "price",
