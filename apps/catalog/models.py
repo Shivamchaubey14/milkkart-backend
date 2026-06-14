@@ -39,6 +39,9 @@ class Product(models.Model):
     slug = models.SlugField(max_length=220, unique=True, blank=True)
     brand = models.CharField(max_length=120, blank=True, default="")
     description = models.TextField(blank=True)
+    image_url = models.CharField(
+        max_length=500, blank=True, default="", help_text="Product image URL or path"
+    )
     tags = models.CharField(max_length=255, blank=True, default="", help_text="Comma-separated search tags")
     is_active = models.BooleanField(default=True)
     # Denormalised rating aggregates, maintained by apps.support on each new rating.
