@@ -17,6 +17,29 @@ class TestHealthCheck:
         assert response.data == {"status": "ok"}
 
 
+@pytest.mark.django_db
+class TestReadinessCheck:
+    def test_readiness_ok(self):
+        response = APIClient().get("/api/v1/readiness/")
+        assert response.status_code == 200
+        assert response.data["status"] == "ready"
+        assert response.data["checks"]["database"] == "ok"
+        assert response.data["checks"]["cache"] == "ok"
+
+    def test_readiness_reports_db_failure(self, monkeypatch):
+        from apps.core import views
+
+        class _BrokenConn:
+            def cursor(self):
+                raise RuntimeError("db down")
+
+        monkeypatch.setattr(views, "connection", _BrokenConn())
+        response = APIClient().get("/api/v1/readiness/")
+        assert response.status_code == 503
+        assert response.data["status"] == "not_ready"
+        assert response.data["checks"]["database"] == "error"
+
+
 class TestExceptionHandler:
     def test_validation_error_format(self):
         client = APIClient()
