@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     "apps.support",
     "apps.inventory",
     "apps.reports",
+    "apps.serviceability",
 ]
 
 MIDDLEWARE = [
@@ -166,6 +167,9 @@ TAX_PERCENT = Decimal(os.environ.get("TAX_PERCENT", "5"))
 
 # Inventory: warn ops/warehouse staff when a variant's stock falls to/below this.
 LOW_STOCK_THRESHOLD = int(os.environ.get("LOW_STOCK_THRESHOLD", "10"))
+
+# Serviceability: enforce the delivery-area gate at checkout / subscription create.
+SERVICEABILITY_ENFORCED = os.environ.get("SERVICEABILITY_ENFORCED", "true").lower() == "true"
 
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:3000").split(",")
