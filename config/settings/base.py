@@ -178,3 +178,21 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
+
+from celery.schedules import crontab  # noqa: E402
+
+# Milk subscriptions: customers may change a delivery until this hour the prior evening.
+SUBSCRIPTION_CUTOFF_HOUR = int(os.environ.get("SUBSCRIPTION_CUTOFF_HOUR", "22"))
+
+CELERY_BEAT_SCHEDULE = {
+    # After the 10 PM cutoff, build the next morning's subscription orders.
+    "generate-subscription-orders": {
+        "task": "apps.subscriptions.tasks.generate_subscription_orders",
+        "schedule": crontab(hour=22, minute=30),
+    },
+    # Evening low-balance nudge so customers can top up before the cutoff.
+    "subscription-low-balance-reminders": {
+        "task": "apps.subscriptions.tasks.send_low_balance_reminders",
+        "schedule": crontab(hour=20, minute=0),
+    },
+}
