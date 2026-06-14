@@ -180,3 +180,101 @@ class TestOTPTask:
         result = send_otp_sms("919876543210", "123456")
         assert result["status"] == "sent"
         assert result["phone"] == "919876543210"
+
+
+# --------------------------------------------------------------------------- #
+# RBAC: roles & permissions
+# --------------------------------------------------------------------------- #
+from rest_framework.test import APIRequestFactory  # noqa: E402
+
+from apps.core.permissions import (  # noqa: E402
+    IsAdminRole,
+    IsOpsManager,
+    IsStaffRole,
+    IsSupportAgent,
+    IsWarehouseStaff,
+)
+
+
+@pytest.mark.django_db
+class TestRoles:
+    def test_default_role_is_customer(self):
+        user = User.objects.create_user(phone="+919000000001", name="Cust")
+        assert user.role == User.Role.CUSTOMER
+        assert not user.is_staff_role
+
+    def test_has_role(self):
+        ops = User.objects.create_user(phone="+919000000002", name="Ops", role=User.Role.OPS)
+        assert ops.has_role(User.Role.OPS)
+        assert not ops.has_role(User.Role.SUPPORT)
+
+    def test_admin_role_passes_any_has_role(self):
+        admin = User.objects.create_user(phone="+919000000003", name="Adm", role=User.Role.ADMIN)
+        assert admin.has_role(User.Role.SUPPORT)
+        assert admin.has_role(User.Role.WAREHOUSE)
+
+    def test_superuser_passes_any_has_role(self):
+        su = User.objects.create_superuser(phone="+919000000004", name="SU")
+        assert su.has_role(User.Role.WAREHOUSE)
+
+    def test_assign_role_command_sets_staff(self):
+        from django.core.management import call_command
+
+        user = User.objects.create_user(phone="+919000000005", name="X")
+        call_command("assign_role", "+919000000005", "ops")
+        user.refresh_from_db()
+        assert user.role == User.Role.OPS
+        assert user.is_staff is True
+
+    def test_assign_customer_role_revokes_staff(self):
+        from django.core.management import call_command
+
+        user = User.objects.create_user(
+            phone="+919000000006", name="Y", role=User.Role.OPS, is_staff=True
+        )
+        call_command("assign_role", "+919000000006", "customer")
+        user.refresh_from_db()
+        assert user.is_staff is False
+
+    def test_me_exposes_role(self):
+        user = User.objects.create_user(phone="+919000000007", name="Z", role=User.Role.SUPPORT)
+        client = APIClient()
+        client.force_authenticate(user=user)
+        response = client.get(reverse("user-me"))
+        assert response.data["role"] == "support"
+
+
+@pytest.mark.django_db
+class TestRolePermissions:
+    factory = APIRequestFactory()
+
+    def _check(self, permission, user):
+        request = self.factory.get("/")
+        request.user = user
+        return permission().has_permission(request, None)
+
+    def test_customer_denied_everywhere(self):
+        cust = User.objects.create_user(phone="+919100000001", name="C")
+        for perm in (IsAdminRole, IsSupportAgent, IsOpsManager, IsWarehouseStaff, IsStaffRole):
+            assert self._check(perm, cust) is False
+
+    def test_support_agent_scope(self):
+        agent = User.objects.create_user(phone="+919100000002", name="S", role=User.Role.SUPPORT)
+        assert self._check(IsSupportAgent, agent) is True
+        assert self._check(IsStaffRole, agent) is True
+        assert self._check(IsOpsManager, agent) is False
+
+    def test_warehouse_includes_ops(self):
+        ops = User.objects.create_user(phone="+919100000003", name="O", role=User.Role.OPS)
+        assert self._check(IsWarehouseStaff, ops) is True
+        assert self._check(IsOpsManager, ops) is True
+
+    def test_admin_role_passes_all(self):
+        admin = User.objects.create_user(phone="+919100000004", name="A", role=User.Role.ADMIN)
+        for perm in (IsAdminRole, IsSupportAgent, IsOpsManager, IsWarehouseStaff, IsStaffRole):
+            assert self._check(perm, admin) is True
+
+    def test_superuser_passes_all(self):
+        su = User.objects.create_superuser(phone="+919100000005", name="SU")
+        for perm in (IsAdminRole, IsSupportAgent, IsOpsManager, IsWarehouseStaff, IsStaffRole):
+            assert self._check(perm, su) is True

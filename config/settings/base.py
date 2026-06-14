@@ -38,6 +38,8 @@ INSTALLED_APPS = [
     "apps.subscriptions",
     "apps.invoices",
     "apps.support",
+    "apps.inventory",
+    "apps.reports",
 ]
 
 MIDDLEWARE = [
@@ -161,6 +163,9 @@ DELIVERY_FEE = Decimal(os.environ.get("DELIVERY_FEE", "25"))
 SMALL_CART_THRESHOLD = Decimal(os.environ.get("SMALL_CART_THRESHOLD", "99"))
 SMALL_CART_FEE = Decimal(os.environ.get("SMALL_CART_FEE", "15"))
 TAX_PERCENT = Decimal(os.environ.get("TAX_PERCENT", "5"))
+
+# Inventory: warn ops/warehouse staff when a variant's stock falls to/below this.
+LOW_STOCK_THRESHOLD = int(os.environ.get("LOW_STOCK_THRESHOLD", "10"))
 
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:3000").split(",")

@@ -1,9 +1,10 @@
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAdminUser, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.catalog.models import Product, ProductVariant
+from apps.core.permissions import IsSupportAgent
 from apps.orders.models import Order
 
 from . import services
@@ -191,7 +192,7 @@ def add_ticket_message(request, ticket_number):
 
 
 @api_view(["POST"])
-@permission_classes([IsAdminUser])
+@permission_classes([IsSupportAgent])
 def resolve_ticket(request, ticket_number):
     """Agent resolves a ticket via replacement or wallet refund."""
     try:

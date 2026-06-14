@@ -7,6 +7,8 @@ from rest_framework.response import Response
 from apps.addresses.models import Address
 from apps.cart.billing import compute_bill
 from apps.cart.models import Cart
+from apps.inventory.models import StockMovement
+from apps.inventory.services import adjust_stock
 from apps.promotions.models import Coupon, CouponRedemption
 
 from .models import DeliverySlot, Order, OrderItem
@@ -82,22 +84,30 @@ def checkout(request):
             notes=serializer.validated_data.get("notes", ""),
         )
 
-        order_items = []
-        for item in cart_items:
-            order_items.append(
-                OrderItem(
-                    order=order,
-                    variant=item.variant,
-                    product_name=item.variant.product.name,
-                    variant_label=item.variant.label,
-                    product_price=item.variant.price,
-                    quantity=item.quantity,
-                )
+        order_items = [
+            OrderItem(
+                order=order,
+                variant=item.variant,
+                product_name=item.variant.product.name,
+                variant_label=item.variant.label,
+                product_price=item.variant.price,
+                quantity=item.quantity,
             )
-            item.variant.stock -= item.quantity
-            item.variant.save(update_fields=["stock"])
-
+            for item in cart_items
+        ]
         OrderItem.objects.bulk_create(order_items)
+
+        # Record the stock reservation in the inventory ledger. Stock was already
+        # verified above; lock=False reuses the fetched variant rows.
+        for item in cart_items:
+            adjust_stock(
+                item.variant,
+                -item.quantity,
+                StockMovement.Reason.SALE,
+                order=order,
+                user=request.user,
+                lock=False,
+            )
 
         if delivery_slot:
             delivery_slot.booked += 1
@@ -166,11 +176,17 @@ def cancel_order(request, order_number):
         )
 
     with transaction.atomic():
-        # Restock variants reserved at checkout.
+        # Return variants reserved at checkout to stock, via the inventory ledger.
         for item in order.items.all():
             if item.variant:
-                item.variant.stock += item.quantity
-                item.variant.save(update_fields=["stock"])
+                adjust_stock(
+                    item.variant,
+                    item.quantity,
+                    StockMovement.Reason.CANCELLATION,
+                    order=order,
+                    user=request.user,
+                    lock=False,
+                )
 
         # Free up the booked delivery slot.
         if order.delivery_slot and order.delivery_slot.booked > 0:
