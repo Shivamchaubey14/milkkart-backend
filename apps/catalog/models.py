@@ -41,6 +41,9 @@ class Product(models.Model):
     description = models.TextField(blank=True)
     tags = models.CharField(max_length=255, blank=True, default="", help_text="Comma-separated search tags")
     is_active = models.BooleanField(default=True)
+    # Denormalised rating aggregates, maintained by apps.support on each new rating.
+    rating_sum = models.PositiveIntegerField(default=0)
+    rating_count = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -50,6 +53,12 @@ class Product(models.Model):
 
     def __str__(self):
         return self.name
+
+    @property
+    def rating_average(self):
+        if self.rating_count:
+            return round(self.rating_sum / self.rating_count, 1)
+        return 0.0
 
     def save(self, *args, **kwargs):
         if not self.slug:
