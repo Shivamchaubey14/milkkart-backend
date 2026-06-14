@@ -1,15 +1,17 @@
+import json
+
 from django.db import transaction
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from apps.orders.models import Order
 from apps.orders.tasks import send_order_confirmation
 from apps.wallet.models import InsufficientBalance, get_or_create_wallet
 
-from . import gateway
-from .models import Payment
+from . import gateway, services
+from .models import Payment, PaymentWebhookEvent
 from .serializers import InitiatePaymentSerializer, PaymentSerializer, VerifyPaymentSerializer
 from .tasks import send_payment_receipt
 
@@ -156,6 +158,66 @@ def verify_payment(request):
     send_order_confirmation.delay(payment.order_id)
 
     return Response(PaymentSerializer(payment).data)
+
+
+def _entity(event, key):
+    return event.get("payload", {}).get(key, {}).get("entity", {})
+
+
+def _derive_event_id(event_type, event):
+    """Fallback idempotency key when the gateway sends no event-id header."""
+    entity = _entity(event, "payment") or _entity(event, "refund")
+    return f"{event_type}:{entity.get('id', '')}"
+
+
+def _dispatch_event(event_type, event):
+    if event_type in ("payment.captured", "payment.authorized"):
+        entity = _entity(event, "payment")
+        return services.capture(entity.get("order_id", ""), entity.get("id", ""))
+    if event_type == "payment.failed":
+        entity = _entity(event, "payment")
+        return services.mark_failed(entity.get("order_id", ""))
+    if event_type in ("refund.processed", "refund.created"):
+        entity = _entity(event, "refund")
+        return services.mark_refunded(entity.get("payment_id", ""))
+    return "ignored"
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+@throttle_classes([])
+def webhook(request):
+    """Authoritative async confirmation from the gateway.
+
+    Verifies the signature over the raw body, dedupes by event id, then applies the
+    state transition. Handlers are idempotent, so a replay is harmless.
+    """
+    raw = request.body
+    signature = request.headers.get("X-Razorpay-Signature", "")
+    if not gateway.verify_webhook_signature(raw, signature):
+        return Response({"error": "Invalid signature."}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        event = json.loads(raw)
+    except (ValueError, TypeError):
+        return Response({"error": "Invalid payload."}, status=status.HTTP_400_BAD_REQUEST)
+
+    event_type = event.get("event", "")
+    event_id = request.headers.get("X-Razorpay-Event-Id") or _derive_event_id(event_type, event)
+
+    log, created = PaymentWebhookEvent.objects.get_or_create(
+        event_id=event_id,
+        defaults={"event_type": event_type, "payload": event},
+    )
+    if not created and log.processed:
+        return Response({"status": "duplicate"})
+
+    result = _dispatch_event(event_type, event)
+
+    log.processed = True
+    log.event_type = event_type
+    log.save(update_fields=["processed", "event_type"])
+    return Response({"status": result})
 
 
 @api_view(["GET"])

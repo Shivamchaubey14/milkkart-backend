@@ -52,3 +52,24 @@ class Payment(models.Model):
     @property
     def is_paid(self):
         return self.status == self.Status.SUCCESS
+
+
+class PaymentWebhookEvent(models.Model):
+    """A received gateway webhook, logged for idempotency and audit.
+
+    A gateway may deliver the same event more than once; ``event_id`` is unique so
+    a replay is recognised and skipped.
+    """
+
+    event_id = models.CharField(max_length=120, unique=True)
+    event_type = models.CharField(max_length=60)
+    payload = models.JSONField(default=dict, blank=True)
+    processed = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "payment_webhook_events"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.event_type} ({self.event_id})"

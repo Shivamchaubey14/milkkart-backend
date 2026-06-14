@@ -154,9 +154,12 @@ SIMPLE_JWT = {
 OTP_LENGTH = 6
 OTP_EXPIRY_MINUTES = 5
 
-# Payment gateway (mock — swap for real Razorpay/Stripe credentials in prod)
+# Payment gateway. "mock" keeps dev/tests hermetic; set "razorpay" in prod.
+PAYMENT_GATEWAY = os.environ.get("PAYMENT_GATEWAY", "mock")
 PAYMENT_GATEWAY_KEY_ID = os.environ.get("PAYMENT_GATEWAY_KEY_ID", "rzp_test_key")
 PAYMENT_GATEWAY_SECRET = os.environ.get("PAYMENT_GATEWAY_SECRET", "test_gateway_secret")
+# Secret for verifying inbound gateway webhooks (distinct from the checkout secret).
+PAYMENT_WEBHOOK_SECRET = os.environ.get("PAYMENT_WEBHOOK_SECRET", "test_webhook_secret")
 
 # Cart bill engine (all amounts in INR)
 FREE_DELIVERY_THRESHOLD = Decimal(os.environ.get("FREE_DELIVERY_THRESHOLD", "199"))
