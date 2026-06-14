@@ -17,4 +17,5 @@ class UserSerializer(serializers.Serializer):
     phone = serializers.CharField(read_only=True)
     name = serializers.CharField(read_only=True)
     email = serializers.EmailField(read_only=True)
+    role = serializers.CharField(read_only=True)
     date_joined = serializers.DateTimeField(read_only=True)
