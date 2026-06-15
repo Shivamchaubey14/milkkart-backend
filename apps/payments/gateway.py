@@ -22,6 +22,11 @@ def _backend():
     return getattr(settings, "PAYMENT_GATEWAY", "mock")
 
 
+def provider():
+    """The active gateway backend name ("mock" or "razorpay")."""
+    return _backend()
+
+
 # --------------------------------------------------------------------------- #
 # Public interface
 # --------------------------------------------------------------------------- #
