@@ -12,11 +12,10 @@ from apps.inventory.services import OutOfStock, adjust_stock
 from apps.promotions.models import Coupon, CouponRedemption
 from apps.serviceability.services import is_serviceable
 
+from .cancellation import CANCELLABLE_STATUSES, perform_cancellation
 from .models import DeliverySlot, Order, OrderItem
 from .serializers import CheckoutSerializer, DeliverySlotSerializer, OrderDetailSerializer, OrderListSerializer
 from .tasks import send_order_confirmation, send_order_status_update
-
-CANCELLABLE_STATUSES = (Order.Status.PENDING, Order.Status.CONFIRMED)
 
 
 @api_view(["POST"])
@@ -173,9 +172,7 @@ def order_detail(request, order_number):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def cancel_order(request, order_number):
-    from apps.payments.models import Payment
     from apps.payments.tasks import process_refund
-    from apps.wallet.models import WalletTransaction, get_or_create_wallet
 
     try:
         order = Order.objects.select_related("delivery_slot").prefetch_related("items__variant").get(
@@ -190,49 +187,7 @@ def cancel_order(request, order_number):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    with transaction.atomic():
-        # Return variants reserved at checkout to stock, via the inventory ledger.
-        for item in order.items.all():
-            if item.variant:
-                adjust_stock(
-                    item.variant,
-                    item.quantity,
-                    StockMovement.Reason.CANCELLATION,
-                    order=order,
-                    user=request.user,
-                    lock=False,
-                )
-
-        # Free up the booked delivery slot.
-        if order.delivery_slot and order.delivery_slot.booked > 0:
-            order.delivery_slot.booked -= 1
-            order.delivery_slot.save(update_fields=["booked"])
-
-        # Settle the payment: refund if captured, otherwise void.
-        payment = getattr(order, "payment", None)
-        refund_payment_id = None
-        if payment:
-            if payment.status == Payment.Status.SUCCESS:
-                payment.status = Payment.Status.REFUNDED
-                payment.save(update_fields=["status", "updated_at"])
-                if payment.method == Payment.Method.WALLET:
-                    # Money came from the wallet — return it there immediately.
-                    wallet = get_or_create_wallet(order.user)
-                    wallet.credit(
-                        payment.amount,
-                        WalletTransaction.Type.REFUND,
-                        description=f"Refund for order {order.order_number}",
-                        order=order,
-                    )
-                else:
-                    refund_payment_id = payment.id
-            elif payment.status in (Payment.Status.CREATED, Payment.Status.PENDING):
-                payment.status = Payment.Status.FAILED
-                payment.save(update_fields=["status", "updated_at"])
-
-        order.status = Order.Status.CANCELLED
-        order.save(update_fields=["status"])
-
+    refund_payment_id = perform_cancellation(order, request.user)
     if refund_payment_id:
         process_refund.delay(refund_payment_id)
     send_order_status_update.delay(order.id, Order.Status.CANCELLED)
