@@ -58,3 +58,6 @@ coverage.xml
 # Celery
 celerybeat-schedule
 celerybeat.pid
+
+# Claude Code (local agent settings)
+.claude/
