@@ -1,4 +1,5 @@
 import json
+import uuid
 
 from django.db import transaction
 from rest_framework import status
@@ -105,6 +106,7 @@ def initiate_payment(request):
 
     data = PaymentSerializer(payment).data
     data["gateway"] = {
+        "provider": gateway.provider(),
         "key_id": gateway_order["key_id"],
         "order_id": gateway_order["id"],
         "amount": gateway_order["amount"],
@@ -157,6 +159,45 @@ def verify_payment(request):
     send_payment_receipt.delay(payment.id)
     send_order_confirmation.delay(payment.order_id)
 
+    return Response(PaymentSerializer(payment).data)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def mock_pay(request):
+    """Dev-only: complete an 'online' payment without a live gateway, mirroring a
+    successful Razorpay checkout. Returns 400 when a real gateway is configured."""
+    if gateway.provider() != "mock":
+        return Response(
+            {"error": "Mock pay is only available with the mock gateway."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    gateway_order_id = request.data.get("gateway_order_id", "")
+    try:
+        payment = Payment.objects.select_related("order").get(
+            gateway_order_id=gateway_order_id, user=request.user
+        )
+    except Payment.DoesNotExist:
+        return Response({"error": "Payment not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if payment.status == Payment.Status.SUCCESS:
+        return Response(PaymentSerializer(payment).data)
+
+    gateway_payment_id = f"pay_{uuid.uuid4().hex[:14]}"
+    with transaction.atomic():
+        payment.gateway_payment_id = gateway_payment_id
+        payment.gateway_signature = gateway.sign(gateway_order_id, gateway_payment_id)
+        payment.status = Payment.Status.SUCCESS
+        payment.save(update_fields=["gateway_payment_id", "gateway_signature", "status", "updated_at"])
+
+        order = payment.order
+        if order.status == Order.Status.PENDING:
+            order.status = Order.Status.CONFIRMED
+            order.save(update_fields=["status"])
+
+    send_payment_receipt.delay(payment.id)
+    send_order_confirmation.delay(payment.order_id)
     return Response(PaymentSerializer(payment).data)
 
 

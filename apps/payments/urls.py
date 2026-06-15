@@ -5,6 +5,7 @@ from . import views
 urlpatterns = [
     path("initiate/", views.initiate_payment, name="payment-initiate"),
     path("verify/", views.verify_payment, name="payment-verify"),
+    path("mock-pay/", views.mock_pay, name="payment-mock-pay"),
     path("webhook/", views.webhook, name="payment-webhook"),
     path("<uuid:order_number>/", views.payment_detail, name="payment-detail"),
 ]
