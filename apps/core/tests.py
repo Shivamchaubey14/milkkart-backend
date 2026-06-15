@@ -17,6 +17,29 @@ class TestHealthCheck:
         assert response.data == {"status": "ok"}
 
 
+@pytest.mark.django_db
+class TestReadinessCheck:
+    def test_readiness_ok(self):
+        response = APIClient().get("/api/v1/readiness/")
+        assert response.status_code == 200
+        assert response.data["status"] == "ready"
+        assert response.data["checks"]["database"] == "ok"
+        assert response.data["checks"]["cache"] == "ok"
+
+    def test_readiness_reports_db_failure(self, monkeypatch):
+        from apps.core import views
+
+        class _BrokenConn:
+            def cursor(self):
+                raise RuntimeError("db down")
+
+        monkeypatch.setattr(views, "connection", _BrokenConn())
+        response = APIClient().get("/api/v1/readiness/")
+        assert response.status_code == 503
+        assert response.data["status"] == "not_ready"
+        assert response.data["checks"]["database"] == "error"
+
+
 class TestExceptionHandler:
     def test_validation_error_format(self):
         client = APIClient()
@@ -87,3 +110,30 @@ class TestCreateTestUserCommand:
         user = User.objects.get(phone="+919999999999")
         assert user.name == "Dev User"
         assert user.addresses.count() == 1
+
+
+class TestProductionSettings:
+    def _load_prod(self, monkeypatch, secret):
+        import importlib
+
+        from config.settings import base as base_settings
+
+        monkeypatch.setattr(base_settings, "SECRET_KEY", secret)
+        import config.settings.prod as prod
+
+        return importlib.reload(prod)
+
+    def test_rejects_default_secret_key(self, monkeypatch):
+        from django.core.exceptions import ImproperlyConfigured
+
+        with pytest.raises(ImproperlyConfigured):
+            self._load_prod(monkeypatch, "insecure-dev-key-change-me")
+
+    def test_security_flags_enabled(self, monkeypatch):
+        prod = self._load_prod(monkeypatch, "a-strong-production-secret-key-0123456789-abcdef")
+        assert prod.DEBUG is False
+        assert prod.SECURE_SSL_REDIRECT is True
+        assert prod.SECURE_HSTS_SECONDS == 31536000
+        assert prod.SECURE_HSTS_INCLUDE_SUBDOMAINS is True
+        assert prod.SESSION_COOKIE_HTTPONLY is True
+        assert prod.CSRF_COOKIE_SECURE is True

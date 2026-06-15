@@ -38,6 +38,9 @@ INSTALLED_APPS = [
     "apps.subscriptions",
     "apps.invoices",
     "apps.support",
+    "apps.inventory",
+    "apps.reports",
+    "apps.serviceability",
 ]
 
 MIDDLEWARE = [
@@ -151,9 +154,12 @@ SIMPLE_JWT = {
 OTP_LENGTH = 6
 OTP_EXPIRY_MINUTES = 5
 
-# Payment gateway (mock — swap for real Razorpay/Stripe credentials in prod)
+# Payment gateway. "mock" keeps dev/tests hermetic; set "razorpay" in prod.
+PAYMENT_GATEWAY = os.environ.get("PAYMENT_GATEWAY", "mock")
 PAYMENT_GATEWAY_KEY_ID = os.environ.get("PAYMENT_GATEWAY_KEY_ID", "rzp_test_key")
 PAYMENT_GATEWAY_SECRET = os.environ.get("PAYMENT_GATEWAY_SECRET", "test_gateway_secret")
+# Secret for verifying inbound gateway webhooks (distinct from the checkout secret).
+PAYMENT_WEBHOOK_SECRET = os.environ.get("PAYMENT_WEBHOOK_SECRET", "test_webhook_secret")
 
 # Cart bill engine (all amounts in INR)
 FREE_DELIVERY_THRESHOLD = Decimal(os.environ.get("FREE_DELIVERY_THRESHOLD", "199"))
@@ -161,6 +167,15 @@ DELIVERY_FEE = Decimal(os.environ.get("DELIVERY_FEE", "25"))
 SMALL_CART_THRESHOLD = Decimal(os.environ.get("SMALL_CART_THRESHOLD", "99"))
 SMALL_CART_FEE = Decimal(os.environ.get("SMALL_CART_FEE", "15"))
 TAX_PERCENT = Decimal(os.environ.get("TAX_PERCENT", "5"))
+
+# Inventory: warn ops/warehouse staff when a variant's stock falls to/below this.
+LOW_STOCK_THRESHOLD = int(os.environ.get("LOW_STOCK_THRESHOLD", "10"))
+
+# Serviceability: enforce the delivery-area gate at checkout / subscription create.
+SERVICEABILITY_ENFORCED = os.environ.get("SERVICEABILITY_ENFORCED", "true").lower() == "true"
+
+# Catalog response cache lifetime (seconds); invalidated on any catalog write.
+CATALOG_CACHE_TTL = int(os.environ.get("CATALOG_CACHE_TTL", "300"))
 
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:3000").split(",")

@@ -332,3 +332,128 @@ class TestPaymentTasks:
         from apps.payments.tasks import process_refund
 
         assert process_refund(99999) is None
+
+
+# --------------------------------------------------------------------------- #
+# Gateway backend selection & webhooks
+# --------------------------------------------------------------------------- #
+import hashlib  # noqa: E402
+import hmac  # noqa: E402
+import json  # noqa: E402
+
+from django.conf import settings  # noqa: E402
+
+from apps.payments.models import PaymentWebhookEvent  # noqa: E402
+from apps.wallet.models import WalletTopup, get_or_create_wallet  # noqa: E402
+
+
+def _sign_body(body):
+    return hmac.new(
+        settings.PAYMENT_WEBHOOK_SECRET.encode(), body.encode(), hashlib.sha256
+    ).hexdigest()
+
+
+def _post_webhook(event, event_id="evt_1", signature=None):
+    body = json.dumps(event)
+    sig = signature if signature is not None else _sign_body(body)
+    return APIClient().post(
+        reverse("payment-webhook"),
+        data=body,
+        content_type="application/json",
+        HTTP_X_RAZORPAY_SIGNATURE=sig,
+        HTTP_X_RAZORPAY_EVENT_ID=event_id,
+    )
+
+
+def _captured_event(order_id, payment_id="pay_1"):
+    return {
+        "event": "payment.captured",
+        "payload": {"payment": {"entity": {"id": payment_id, "order_id": order_id}}},
+    }
+
+
+@pytest.mark.django_db
+class TestGatewayBackend:
+    def test_webhook_signature_round_trip(self):
+        body = '{"event":"x"}'
+        assert gateway.verify_webhook_signature(body, _sign_body(body))
+
+    def test_webhook_signature_rejected(self):
+        assert not gateway.verify_webhook_signature('{"event":"x"}', "bad")
+
+
+@pytest.mark.django_db
+class TestWebhook:
+    def test_invalid_signature_rejected(self):
+        response = _post_webhook(_captured_event("order_x"), signature="bad")
+        assert response.status_code == 400
+
+    def test_capture_confirms_order_payment(self, order, user):
+        Payment.objects.create(
+            order=order, user=user, method=Payment.Method.ONLINE,
+            status=Payment.Status.CREATED, amount=order.total, gateway_order_id="order_x",
+        )
+        response = _post_webhook(_captured_event("order_x"), event_id="evt_cap")
+        assert response.status_code == 200
+        order.refresh_from_db()
+        payment = order.payment
+        assert payment.status == Payment.Status.SUCCESS
+        assert payment.gateway_payment_id == "pay_1"
+        assert order.status == Order.Status.CONFIRMED
+
+    def test_capture_is_idempotent(self, order, user):
+        Payment.objects.create(
+            order=order, user=user, method=Payment.Method.ONLINE,
+            status=Payment.Status.CREATED, amount=order.total, gateway_order_id="order_x",
+        )
+        first = _post_webhook(_captured_event("order_x"), event_id="evt_dup")
+        second = _post_webhook(_captured_event("order_x"), event_id="evt_dup")
+        assert first.data["status"] == "payment_captured"
+        assert second.data["status"] == "duplicate"
+        assert PaymentWebhookEvent.objects.filter(event_id="evt_dup").count() == 1
+
+    def test_capture_credits_wallet_topup_once(self, user):
+        wallet = get_or_create_wallet(user)
+        WalletTopup.objects.create(
+            wallet=wallet, amount=Decimal("100.00"),
+            status=WalletTopup.Status.CREATED, gateway_order_id="order_top",
+        )
+        _post_webhook(_captured_event("order_top", "pay_top"), event_id="evt_top")
+        wallet.refresh_from_db()
+        assert wallet.balance == Decimal("100.00")
+        # Replay must not double-credit.
+        _post_webhook(_captured_event("order_top", "pay_top"), event_id="evt_top")
+        wallet.refresh_from_db()
+        assert wallet.balance == Decimal("100.00")
+
+    def test_payment_failed_event(self, order, user):
+        Payment.objects.create(
+            order=order, user=user, method=Payment.Method.ONLINE,
+            status=Payment.Status.CREATED, amount=order.total, gateway_order_id="order_f",
+        )
+        event = {
+            "event": "payment.failed",
+            "payload": {"payment": {"entity": {"id": "pay_f", "order_id": "order_f"}}},
+        }
+        _post_webhook(event, event_id="evt_fail")
+        order.payment.refresh_from_db()
+        assert order.payment.status == Payment.Status.FAILED
+
+    def test_refund_processed_event(self, order, user):
+        Payment.objects.create(
+            order=order, user=user, method=Payment.Method.ONLINE,
+            status=Payment.Status.SUCCESS, amount=order.total,
+            gateway_order_id="order_r", gateway_payment_id="pay_r",
+        )
+        event = {
+            "event": "refund.processed",
+            "payload": {"refund": {"entity": {"id": "rfnd_1", "payment_id": "pay_r"}}},
+        }
+        _post_webhook(event, event_id="evt_refund")
+        order.payment.refresh_from_db()
+        assert order.payment.status == Payment.Status.REFUNDED
+
+    def test_unmatched_order_is_acknowledged(self):
+        response = _post_webhook(_captured_event("order_missing"), event_id="evt_miss")
+        assert response.status_code == 200
+        assert response.data["status"] == "unmatched"

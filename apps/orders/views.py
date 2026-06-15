@@ -7,7 +7,10 @@ from rest_framework.response import Response
 from apps.addresses.models import Address
 from apps.cart.billing import compute_bill
 from apps.cart.models import Cart
+from apps.inventory.models import StockMovement
+from apps.inventory.services import OutOfStock, adjust_stock
 from apps.promotions.models import Coupon, CouponRedemption
+from apps.serviceability.services import is_serviceable
 
 from .models import DeliverySlot, Order, OrderItem
 from .serializers import CheckoutSerializer, DeliverySlotSerializer, OrderDetailSerializer, OrderListSerializer
@@ -27,6 +30,12 @@ def checkout(request):
         address = Address.objects.get(id=serializer.validated_data["address_id"], user=request.user)
     except Address.DoesNotExist:
         return Response({"error": "Address not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if not is_serviceable(address):
+        return Response(
+            {"error": "We don't deliver to this address yet."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     # Validate delivery slot (optional)
     delivery_slot = None
@@ -66,25 +75,24 @@ def checkout(request):
     # A coupon is only charged if it was still eligible at checkout time.
     coupon = cart.applied_coupon if bill["coupon_code"] else None
 
-    with transaction.atomic():
-        order = Order.objects.create(
-            user=request.user,
-            subtotal=bill["subtotal"],
-            discount=bill["coupon_discount"],
-            delivery_fee=bill["delivery_fee"],
-            small_cart_fee=bill["small_cart_fee"],
-            tax=bill["tax"],
-            total=bill["grand_total"],
-            coupon=coupon,
-            address=address,
-            address_snapshot=address_snapshot,
-            delivery_slot=delivery_slot,
-            notes=serializer.validated_data.get("notes", ""),
-        )
+    try:
+        with transaction.atomic():
+            order = Order.objects.create(
+                user=request.user,
+                subtotal=bill["subtotal"],
+                discount=bill["coupon_discount"],
+                delivery_fee=bill["delivery_fee"],
+                small_cart_fee=bill["small_cart_fee"],
+                tax=bill["tax"],
+                total=bill["grand_total"],
+                coupon=coupon,
+                address=address,
+                address_snapshot=address_snapshot,
+                delivery_slot=delivery_slot,
+                notes=serializer.validated_data.get("notes", ""),
+            )
 
-        order_items = []
-        for item in cart_items:
-            order_items.append(
+            order_items = [
                 OrderItem(
                     order=order,
                     variant=item.variant,
@@ -93,28 +101,45 @@ def checkout(request):
                     product_price=item.variant.price,
                     quantity=item.quantity,
                 )
-            )
-            item.variant.stock -= item.quantity
-            item.variant.save(update_fields=["stock"])
+                for item in cart_items
+            ]
+            OrderItem.objects.bulk_create(order_items)
 
-        OrderItem.objects.bulk_create(order_items)
+            # Reserve stock through the ledger. lock=True re-reads each variant row
+            # FOR UPDATE, so a concurrent checkout can't drive stock negative between
+            # the pre-check above and this write; an oversell raises OutOfStock and
+            # rolls the whole order back.
+            for item in cart_items:
+                adjust_stock(
+                    item.variant,
+                    -item.quantity,
+                    StockMovement.Reason.SALE,
+                    order=order,
+                    user=request.user,
+                    lock=True,
+                )
 
-        if delivery_slot:
-            delivery_slot.booked += 1
-            delivery_slot.save(update_fields=["booked"])
+            if delivery_slot:
+                delivery_slot.booked += 1
+                delivery_slot.save(update_fields=["booked"])
 
-        if coupon:
-            CouponRedemption.objects.create(
-                coupon=coupon,
-                user=request.user,
-                order=order,
-                discount_amount=bill["coupon_discount"],
-            )
-            Coupon.objects.filter(pk=coupon.pk).update(times_used=models.F("times_used") + 1)
+            if coupon:
+                CouponRedemption.objects.create(
+                    coupon=coupon,
+                    user=request.user,
+                    order=order,
+                    discount_amount=bill["coupon_discount"],
+                )
+                Coupon.objects.filter(pk=coupon.pk).update(times_used=models.F("times_used") + 1)
 
-        cart.applied_coupon = None
-        cart.save(update_fields=["applied_coupon", "updated_at"])
-        cart.items.all().delete()
+            cart.applied_coupon = None
+            cart.save(update_fields=["applied_coupon", "updated_at"])
+            cart.items.all().delete()
+    except OutOfStock:
+        return Response(
+            {"error": "Some items just went out of stock. Please review your cart."},
+            status=status.HTTP_409_CONFLICT,
+        )
 
     send_order_confirmation.delay(order.id)
 
@@ -166,11 +191,17 @@ def cancel_order(request, order_number):
         )
 
     with transaction.atomic():
-        # Restock variants reserved at checkout.
+        # Return variants reserved at checkout to stock, via the inventory ledger.
         for item in order.items.all():
             if item.variant:
-                item.variant.stock += item.quantity
-                item.variant.save(update_fields=["stock"])
+                adjust_stock(
+                    item.variant,
+                    item.quantity,
+                    StockMovement.Reason.CANCELLATION,
+                    order=order,
+                    user=request.user,
+                    lock=False,
+                )
 
         # Free up the booked delivery slot.
         if order.delivery_slot and order.delivery_slot.booked > 0:

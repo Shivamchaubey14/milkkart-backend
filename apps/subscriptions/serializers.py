@@ -66,6 +66,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         if request and address.user_id != request.user.id:
             raise serializers.ValidationError("Address not found.")
+        from apps.serviceability.services import is_serviceable
+
+        if not is_serviceable(address):
+            raise serializers.ValidationError("We don't deliver to this address yet.")
         return address
 
     def validate(self, attrs):

@@ -34,6 +34,16 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractBaseUser, PermissionsMixin):
+    class Role(models.TextChoices):
+        CUSTOMER = "customer", "Customer"
+        SUPPORT = "support", "Support agent"
+        OPS = "ops", "Operations"
+        WAREHOUSE = "warehouse", "Warehouse"
+        ADMIN = "admin", "Administrator"
+
+    # Roles that grant back-office access (and therefore Django-admin login).
+    STAFF_ROLES = (Role.SUPPORT, Role.OPS, Role.WAREHOUSE, Role.ADMIN)
+
     phone = models.CharField(
         max_length=17,
         unique=True,
@@ -41,6 +51,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     )
     name = models.CharField(max_length=150, blank=True)
     email = models.EmailField(blank=True)
+    role = models.CharField(max_length=12, choices=Role.choices, default=Role.CUSTOMER)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(auto_now_add=True)
@@ -55,6 +66,15 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.phone
+
+    @property
+    def is_staff_role(self):
+        """True if this user holds any back-office role."""
+        return self.role in self.STAFF_ROLES
+
+    def has_role(self, *roles):
+        """True for an admin/superuser, or when the user holds one of ``roles``."""
+        return self.is_superuser or self.role == self.Role.ADMIN or self.role in roles
 
 
 class OTP(models.Model):

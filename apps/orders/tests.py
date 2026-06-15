@@ -198,6 +198,34 @@ class TestCheckoutAPI:
         assert response.status_code == 400
         assert "stock" in response.data["error"].lower()
 
+    def test_checkout_is_oversell_safe_under_race(
+        self, auth_client, user, product, address, monkeypatch
+    ):
+        """A concurrent buyer draining stock after the pre-check must not oversell."""
+        from apps.cart.billing import compute_bill as real_compute_bill
+        from apps.inventory.models import StockMovement
+
+        cart = Cart.objects.create(user=user)
+        CartItem.objects.create(cart=cart, variant=product, quantity=product.stock)
+
+        # Simulate another order grabbing all the stock between the pre-check and the
+        # locked write: compute_bill runs in that window.
+        def drain_then_bill(c):
+            ProductVariant.objects.filter(pk=product.pk).update(stock=0)
+            return real_compute_bill(c)
+
+        monkeypatch.setattr("apps.orders.views.compute_bill", drain_then_bill)
+
+        response = auth_client.post(reverse("order-checkout"), {"address_id": address.id})
+
+        assert response.status_code == 409
+        # Order rolled back; no negative stock, no movement, cart intact.
+        assert not Order.objects.filter(user=user).exists()
+        assert not StockMovement.objects.exists()
+        product.refresh_from_db()
+        assert product.stock == 0
+        assert cart.items.count() == 1
+
     def test_checkout_missing_address_id(self, auth_client, cart_with_items):
         response = auth_client.post(reverse("order-checkout"), {})
         assert response.status_code == 400
