@@ -1,6 +1,14 @@
 from django.contrib import admin
 
-from .models import Coupon, CouponRedemption
+from .models import Banner, Coupon, CouponRedemption
+
+
+@admin.register(Banner)
+class BannerAdmin(admin.ModelAdmin):
+    list_display = ("title", "subtitle", "is_active", "sort_order", "link_url")
+    list_filter = ("is_active",)
+    list_editable = ("is_active", "sort_order")
+    search_fields = ("title", "subtitle")
 
 
 @admin.register(Coupon)

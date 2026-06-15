@@ -158,3 +158,16 @@ class TestCouponListAPI:
     def test_requires_auth(self):
         response = APIClient().get(reverse("coupon-list"))
         assert response.status_code == 401
+
+
+@pytest.mark.django_db
+class TestBannerAPI:
+    def test_lists_active_banners_publicly(self):
+        from apps.promotions.models import Banner
+        Banner.objects.create(title="Hello", is_active=True)
+        Banner.objects.create(title="Hidden", is_active=False)
+        from rest_framework.test import APIClient
+        res = APIClient().get(reverse("banner-list"))
+        assert res.status_code == 200
+        assert len(res.data) == 1
+        assert res.data[0]["title"] == "Hello"

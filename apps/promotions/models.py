@@ -102,3 +102,26 @@ class CouponRedemption(models.Model):
 
     def __str__(self):
         return f"{self.coupon.code} by {self.user.phone}"
+
+
+class Banner(models.Model):
+    """A promotional banner shown on the storefront, managed from the admin."""
+
+    title = models.CharField(max_length=120, blank=True, default="")
+    subtitle = models.CharField(max_length=200, blank=True, default="")
+    image_url = models.CharField(max_length=500, blank=True, default="", help_text="Background image URL/path")
+    link_url = models.CharField(max_length=500, blank=True, default="", help_text="Where the banner links to")
+    bg_color = models.CharField(
+        max_length=40, blank=True, default="", help_text="CSS background when no image"
+    )
+    is_active = models.BooleanField(default=True)
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "banners"
+        ordering = ["sort_order", "-created_at"]
+
+    def __str__(self):
+        return self.title or f"Banner #{self.pk}"

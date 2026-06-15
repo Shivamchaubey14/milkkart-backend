@@ -1,6 +1,12 @@
 from rest_framework import serializers
 
-from .models import Coupon
+from .models import Banner, Coupon
+
+
+class BannerSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Banner
+        fields = ["id", "title", "subtitle", "image_url", "link_url", "bg_color"]
 
 
 class CouponSerializer(serializers.ModelSerializer):
