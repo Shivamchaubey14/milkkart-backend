@@ -143,3 +143,21 @@ class TestWalletTopup:
     def test_topup_minimum_amount(self, auth_client):
         response = auth_client.post(reverse("wallet-topup"), {"amount": "0"})
         assert response.status_code == 400
+
+
+@pytest.mark.django_db
+class TestWalletMockPay:
+    def test_mock_pay_credits_wallet(self, auth_client, user):
+        created = auth_client.post(reverse("wallet-topup"), {"amount": "300"}).data
+        order_id = created["gateway"]["order_id"]
+        response = auth_client.post(
+            reverse("wallet-topup-mock-pay"), {"gateway_order_id": order_id}, format="json"
+        )
+        assert response.status_code == 200
+        assert response.data["balance"] == "300.00"
+
+    def test_mock_pay_unknown_order(self, auth_client):
+        response = auth_client.post(
+            reverse("wallet-topup-mock-pay"), {"gateway_order_id": "order_nope"}, format="json"
+        )
+        assert response.status_code == 400
