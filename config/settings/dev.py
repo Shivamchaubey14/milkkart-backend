@@ -4,6 +4,9 @@ DEBUG = True
 
 ALLOWED_HOSTS = ["*"]
 
+# Serve ASGI (Channels/WebSockets) from `runserver` in dev. daphne must come first.
+INSTALLED_APPS = ["daphne", *INSTALLED_APPS]  # noqa: F405
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
