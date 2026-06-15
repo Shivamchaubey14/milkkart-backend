@@ -73,6 +73,25 @@ def rider_location(request):
 
 @api_view(["GET"])
 @permission_classes([IsRider])
+def rider_day(request):
+    """The rider's daily delivery list, COD summary and earnings (FR-DEL-03)."""
+    from django.utils import timezone
+
+    from .services import rider_day_summary
+
+    date = timezone.localdate()
+    date_param = request.query_params.get("date")
+    if date_param:
+        import datetime
+        try:
+            date = datetime.date.fromisoformat(date_param)
+        except ValueError:
+            return Response({"error": "Invalid date — use YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+    return Response(rider_day_summary(request.user.delivery_partner, date))
+
+
+@api_view(["GET"])
+@permission_classes([IsRider])
 def rider_assignments(request):
     assignments = (
         DeliveryAssignment.objects.filter(rider__user=request.user)
