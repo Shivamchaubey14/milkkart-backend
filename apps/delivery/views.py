@@ -26,12 +26,15 @@ def _assignment_for(request, order_number):
     )
 
 
-@api_view(["POST"])
+@api_view(["GET", "POST"])
 @permission_classes([IsRider])
 def rider_duty(request):
+    partner = request.user.delivery_partner
+    if request.method == "GET":
+        return Response(DeliveryPartnerSerializer(partner).data)
+
     serializer = DutySerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
-    partner = request.user.delivery_partner
 
     partner.is_on_duty = serializer.validated_data["on_duty"]
     fields = ["is_on_duty", "updated_at"]
