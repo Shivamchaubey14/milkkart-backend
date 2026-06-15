@@ -7,6 +7,16 @@ ALLOWED_HOSTS = ["*"]
 # Serve ASGI (Channels/WebSockets) from `runserver` in dev. daphne must come first.
 INSTALLED_APPS = ["daphne", *INSTALLED_APPS]  # noqa: F405
 
+# Use the in-process channel layer in dev: the bundled Redis may predate the
+# BZPOPMIN command that channels-redis needs. Broadcasts triggered within the
+# runserver process (e.g. rider location, order status) reach connected clients.
+CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
+
+# Run Celery tasks inline in dev (no broker/worker needed) so order-status
+# broadcasts and notifications happen during the request, in the runserver process.
+CELERY_TASK_ALWAYS_EAGER = True
+CELERY_TASK_EAGER_PROPAGATES = True
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
