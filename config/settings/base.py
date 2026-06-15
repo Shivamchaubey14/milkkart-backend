@@ -171,6 +171,9 @@ TAX_PERCENT = Decimal(os.environ.get("TAX_PERCENT", "5"))
 # Inventory: warn ops/warehouse staff when a variant's stock falls to/below this.
 LOW_STOCK_THRESHOLD = int(os.environ.get("LOW_STOCK_THRESHOLD", "10"))
 
+# Flat payout a rider earns per delivered order (used in the rider day summary).
+DELIVERY_RIDER_FEE = Decimal(os.environ.get("DELIVERY_RIDER_FEE", "20"))
+
 # Serviceability: enforce the delivery-area gate at checkout / subscription create.
 SERVICEABILITY_ENFORCED = os.environ.get("SERVICEABILITY_ENFORCED", "true").lower() == "true"
 
