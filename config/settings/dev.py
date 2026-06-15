@@ -17,6 +17,16 @@ CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}
 CELERY_TASK_ALWAYS_EAGER = True
 CELERY_TASK_EAGER_PROPAGATES = True
 
+# Use an in-process cache in dev so the cache-backed views (catalog products /
+# categories) work without a running Redis. base.py points CACHES at redis:6379,
+# the Docker hostname, which doesn't resolve when running runserver locally.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "milkkart-dev",
+    }
+}
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",

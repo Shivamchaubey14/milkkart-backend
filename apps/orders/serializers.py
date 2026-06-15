@@ -14,10 +14,29 @@ class DeliverySlotSerializer(serializers.ModelSerializer):
 
 class OrderItemSerializer(serializers.ModelSerializer):
     subtotal = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    # Surfaced so the web/app can offer one-tap reorder (FR-ORD-04). The variant
+    # may have been deleted (SET_NULL) or be out of stock, so both are nullable.
+    variant_id = serializers.SerializerMethodField()
+    variant_in_stock = serializers.SerializerMethodField()
 
     class Meta:
         model = OrderItem
-        fields = ["id", "product_name", "variant_label", "product_price", "quantity", "subtotal"]
+        fields = [
+            "id",
+            "product_name",
+            "variant_label",
+            "product_price",
+            "quantity",
+            "subtotal",
+            "variant_id",
+            "variant_in_stock",
+        ]
+
+    def get_variant_id(self, obj):
+        return obj.variant_id
+
+    def get_variant_in_stock(self, obj):
+        return bool(obj.variant and obj.variant.stock >= obj.quantity)
 
 
 class OrderListSerializer(serializers.ModelSerializer):
