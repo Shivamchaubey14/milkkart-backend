@@ -9,7 +9,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from apps.core.throttles import OTPRateThrottle
 
 from .models import OTP, User
-from .serializers import SendOTPSerializer, UserSerializer, VerifyOTPSerializer
+from .serializers import SendOTPSerializer, UserSerializer, UserUpdateSerializer, VerifyOTPSerializer
 from .tasks import send_otp_sms
 
 logger = logging.getLogger(__name__)
@@ -77,8 +77,11 @@ def verify_otp(request):
     )
 
 
-@api_view(["GET"])
+@api_view(["GET", "PATCH"])
 @permission_classes([IsAuthenticated])
 def me(request):
-    serializer = UserSerializer(request.user)
-    return Response(serializer.data)
+    if request.method == "PATCH":
+        serializer = UserUpdateSerializer(request.user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+    return Response(UserSerializer(request.user).data)
