@@ -36,3 +36,8 @@ CORS_ALLOW_ALL_ORIGINS = True
 REST_FRAMEWORK["DEFAULT_RENDERER_CLASSES"].append(  # noqa: F405
     "rest_framework.renderers.BrowsableAPIRenderer",
 )
+
+# No request throttling in local dev (anon/user/OTP limits get in the way while
+# developing, and the counts persist in Redis). Production keeps the base limits.
+REST_FRAMEWORK["DEFAULT_THROTTLE_CLASSES"] = []  # noqa: F405
+REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {"anon": None, "user": None, "otp": None}  # noqa: F405
