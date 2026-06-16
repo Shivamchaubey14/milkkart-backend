@@ -19,3 +19,18 @@ class UserSerializer(serializers.Serializer):
     email = serializers.EmailField(read_only=True)
     role = serializers.CharField(read_only=True)
     date_joined = serializers.DateTimeField(read_only=True)
+
+
+class UserUpdateSerializer(serializers.Serializer):
+    """Editable profile fields (phone stays fixed — it's the login identity)."""
+
+    name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    email = serializers.EmailField(required=False, allow_blank=True)
+
+    def update(self, instance, validated_data):
+        changed = [f for f in ("name", "email") if f in validated_data]
+        for field in changed:
+            setattr(instance, field, validated_data[field])
+        if changed:
+            instance.save(update_fields=changed)
+        return instance
