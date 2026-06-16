@@ -18,7 +18,17 @@ class UserSerializer(serializers.Serializer):
     name = serializers.CharField(read_only=True)
     email = serializers.EmailField(read_only=True)
     role = serializers.CharField(read_only=True)
+    is_rider = serializers.SerializerMethodField()
     date_joined = serializers.DateTimeField(read_only=True)
+
+    def get_is_rider(self, obj):
+        """True when the user has an active delivery-partner profile."""
+        from apps.delivery.models import DeliveryPartner
+
+        try:
+            return obj.delivery_partner.is_active
+        except DeliveryPartner.DoesNotExist:
+            return False
 
 
 class UserUpdateSerializer(serializers.Serializer):
