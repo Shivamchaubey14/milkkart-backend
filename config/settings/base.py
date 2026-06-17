@@ -2,7 +2,13 @@ import os
 from decimal import Decimal
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+# Load a local .env (gitignored) if present, so secrets/config can live in a file
+# instead of the shell. Existing environment variables are not overridden.
+load_dotenv(BASE_DIR / ".env")
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "insecure-dev-key-change-me")
 
@@ -153,6 +159,18 @@ SIMPLE_JWT = {
 
 OTP_LENGTH = 6
 OTP_EXPIRY_MINUTES = 5
+
+# Email (SMTP). Credentials live in .env (gitignored); see EMAIL_HOST_USER /
+# EMAIL_HOST_PASSWORD there. OTPs are emailed in addition to the SMS log.
+EMAIL_BACKEND = os.environ.get("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "true").lower() == "true"
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER or "indent@shwetdharamilk.com")
+# Fallback recipient for OTPs of users who have no email on file yet.
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", DEFAULT_FROM_EMAIL)
 
 # Payment gateway. "mock" keeps dev/tests hermetic; set "razorpay" in prod.
 PAYMENT_GATEWAY = os.environ.get("PAYMENT_GATEWAY", "mock")
