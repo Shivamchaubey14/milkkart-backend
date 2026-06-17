@@ -332,6 +332,75 @@ def calendar(subscription, year, month):
     return entries
 
 
+def demand_forecast(date):
+    """Next-morning demand for ``date`` (FR-ADM-05).
+
+    Sums effective quantities across active subscriptions due that day — honouring
+    frequency, vacations and per-day overrides (a recorded SKIPPED day drops out, an
+    overridden quantity is used) — and returns both a per-SKU forecast and a
+    per-stop route sheet for riders.
+    """
+    subs = (
+        Subscription.objects.filter(status=Subscription.Status.ACTIVE)
+        .select_related("variant__product", "address", "user")
+        .prefetch_related("vacations")
+    )
+    overrides = {d.subscription_id: d for d in SubscriptionDelivery.objects.filter(date=date)}
+
+    by_sku = {}
+    stops = []
+    total_units = 0
+    total_value = Decimal("0")
+
+    for sub in subs:
+        if not is_due(sub, date):
+            continue
+        override = overrides.get(sub.id)
+        if override and override.status == SubscriptionDelivery.Status.SKIPPED:
+            continue
+        qty = override.quantity if override else sub.quantity
+        variant = sub.variant
+        value = _quantize(variant.price * qty)
+
+        agg = by_sku.get(variant.id)
+        if agg is None:
+            agg = {"variant_id": variant.id, "sku": variant.sku, "product": variant.product.name,
+                   "label": variant.label, "units": 0, "stops": 0, "value": Decimal("0")}
+            by_sku[variant.id] = agg
+        agg["units"] += qty
+        agg["stops"] += 1
+        agg["value"] += value
+
+        address = sub.address
+        stops.append({
+            "customer_name": sub.user.name or "",
+            "customer_phone": sub.user.phone,
+            "address": _address_snapshot(address),
+            "city": address.city,
+            "pincode": address.pincode,
+            "product": variant.product.name,
+            "label": variant.label,
+            "quantity": qty,
+            "preferred_time": sub.preferred_time.strftime("%H:%M") if sub.preferred_time else None,
+        })
+        total_units += qty
+        total_value += value
+
+    by_sku_list = sorted(by_sku.values(), key=lambda r: -r["units"])
+    for row in by_sku_list:
+        row["value"] = str(row["value"])
+    stops.sort(key=lambda s: (s["pincode"] or "", s["preferred_time"] or "~"))
+
+    return {
+        "date": date.isoformat(),
+        "total_units": total_units,
+        "total_stops": len(stops),
+        "total_value": str(_quantize(total_value)),
+        "by_sku": by_sku_list,
+        "stops": stops,
+    }
+
+
 def monthly_summary(user, year, month):
     """Aggregate a user's subscription deliveries for a month."""
     deliveries = SubscriptionDelivery.objects.filter(

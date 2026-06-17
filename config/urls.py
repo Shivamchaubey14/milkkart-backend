@@ -24,5 +24,6 @@ urlpatterns = [
     path("api/v1/admin/orders/", include("apps.orders.admin_urls")),
     path("api/v1/admin/catalog/", include("apps.catalog.admin_urls")),
     path("api/v1/admin/promotions/", include("apps.promotions.admin_urls")),
+    path("api/v1/admin/subscriptions/", include("apps.subscriptions.admin_urls")),
     path("api/v1/admin/", include("apps.delivery.admin_urls")),
 ]
