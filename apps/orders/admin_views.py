@@ -29,6 +29,12 @@ def order_board(request):
     status_filter = request.query_params.get("status")
     if status_filter:
         qs = qs.filter(status=status_filter)
+    start = request.query_params.get("start")
+    end = request.query_params.get("end")
+    if start:
+        qs = qs.filter(placed_at__date__gte=start)
+    if end:
+        qs = qs.filter(placed_at__date__lte=end)
     return Response(AdminOrderSerializer(qs, many=True).data)
 
 
