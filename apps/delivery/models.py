@@ -50,7 +50,7 @@ class DeliveryAssignment(models.Model):
     )
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.ASSIGNED)
     delivery_otp = models.CharField(max_length=6, default=generate_delivery_otp)
-    proof_photo = models.CharField(max_length=255, blank=True, default="")
+    proof_photo = models.TextField(blank=True, default="", help_text="Proof photo URL or an uploaded data: URL")
     assigned_at = models.DateTimeField(auto_now_add=True)
     accepted_at = models.DateTimeField(null=True, blank=True)
     picked_up_at = models.DateTimeField(null=True, blank=True)
