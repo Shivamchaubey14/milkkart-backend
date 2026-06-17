@@ -5,6 +5,13 @@ from rest_framework.response import Response
 
 from .models import Address
 from .serializers import AddressSerializer
+from .tasks import geocode_address
+
+
+def _maybe_geocode(address):
+    """Backfill coordinates from the address text when none were supplied."""
+    if address.latitude is None or address.longitude is None:
+        geocode_address.delay(address.id)
 
 
 @api_view(["GET", "POST"])
@@ -18,7 +25,8 @@ def address_list_create(request):
     serializer = AddressSerializer(data=request.data, context={"request": request})
     serializer.is_valid(raise_exception=True)
     serializer.save()
-    return Response(serializer.data, status=status.HTTP_201_CREATED)
+    _maybe_geocode(serializer.instance)
+    return Response(AddressSerializer(serializer.instance).data, status=status.HTTP_201_CREATED)
 
 
 @api_view(["GET", "PATCH", "DELETE"])
@@ -39,4 +47,5 @@ def address_detail(request, address_id):
     serializer = AddressSerializer(address, data=request.data, partial=True)
     serializer.is_valid(raise_exception=True)
     serializer.save()
-    return Response(serializer.data)
+    _maybe_geocode(serializer.instance)
+    return Response(AddressSerializer(serializer.instance).data)
