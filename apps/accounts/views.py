@@ -1,5 +1,6 @@
 import logging
 
+from django.conf import settings
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import IsAuthenticated
@@ -10,7 +11,7 @@ from apps.core.throttles import OTPRateThrottle
 
 from .models import OTP, User
 from .serializers import SendOTPSerializer, UserSerializer, UserUpdateSerializer, VerifyOTPSerializer
-from .tasks import send_otp_sms
+from .tasks import send_otp_email, send_otp_sms
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,12 @@ def send_otp(request):
 
     otp = OTP.generate(phone)
     send_otp_sms.delay(phone, otp.code)
+
+    # Also email the OTP — to the user's address if we know it, otherwise to the
+    # admin inbox so the code is still visible during dev/onboarding.
+    user = User.objects.filter(phone=phone).first()
+    recipient = (user.email if user and user.email else "") or settings.ADMIN_EMAIL
+    send_otp_email.delay(recipient, otp.code)
 
     return Response(
         {"message": "OTP sent successfully"},
