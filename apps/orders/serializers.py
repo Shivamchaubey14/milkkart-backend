@@ -52,6 +52,7 @@ class OrderDetailSerializer(serializers.ModelSerializer):
     delivery_slot = DeliverySlotSerializer(read_only=True)
     coupon_code = serializers.CharField(source="coupon.code", read_only=True, default=None)
     assignment = serializers.SerializerMethodField()
+    destination = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
@@ -67,6 +68,7 @@ class OrderDetailSerializer(serializers.ModelSerializer):
             "total",
             "coupon_code",
             "address_snapshot",
+            "destination",
             "delivery_slot",
             "notes",
             "items",
@@ -74,6 +76,13 @@ class OrderDetailSerializer(serializers.ModelSerializer):
             "placed_at",
             "updated_at",
         ]
+
+    def get_destination(self, obj):
+        """Delivery address coordinates for live-tracking the rider, when known."""
+        addr = getattr(obj, "address", None)
+        if addr and addr.latitude is not None and addr.longitude is not None:
+            return {"lat": str(addr.latitude), "lng": str(addr.longitude)}
+        return None
 
     def get_assignment(self, obj):
         from apps.delivery.models import DeliveryAssignment
