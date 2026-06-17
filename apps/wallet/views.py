@@ -43,6 +43,7 @@ def wallet_topup(request):
             "topup_id": topup.id,
             "amount": amount,
             "gateway": {
+                "provider": gateway.provider(),
                 "key_id": gateway_order["key_id"],
                 "order_id": gateway_order["id"],
                 "amount": gateway_order["amount"],
