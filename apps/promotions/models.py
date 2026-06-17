@@ -109,7 +109,7 @@ class Banner(models.Model):
 
     title = models.CharField(max_length=120, blank=True, default="")
     subtitle = models.CharField(max_length=200, blank=True, default="")
-    image_url = models.CharField(max_length=500, blank=True, default="", help_text="Background image URL/path")
+    image_url = models.TextField(blank=True, default="", help_text="Background image URL/path, or an uploaded data: URL")
     link_url = models.CharField(max_length=500, blank=True, default="", help_text="Where the banner links to")
     bg_color = models.CharField(
         max_length=40, blank=True, default="", help_text="CSS background when no image"
