@@ -5,6 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.addresses.models import Address
+from apps.addresses.services import coordinates_for
 from apps.cart.billing import compute_bill
 from apps.cart.models import Cart
 from apps.inventory.models import StockMovement
@@ -29,6 +30,14 @@ def checkout(request):
         address = Address.objects.get(id=serializer.validated_data["address_id"], user=request.user)
     except Address.DoesNotExist:
         return Response({"error": "Address not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Ensure coordinates so the polygon (delivery-zone) check can apply; addresses
+    # are usually geocoded on save, but backfill legacy/failed ones best-effort.
+    if address.latitude is None or address.longitude is None:
+        coords = coordinates_for(address)
+        if coords:
+            address.latitude, address.longitude = coords
+            address.save(update_fields=["latitude", "longitude", "updated_at"])
 
     if not is_serviceable(address):
         return Response(
