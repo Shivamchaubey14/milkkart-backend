@@ -6,8 +6,30 @@ from rest_framework.response import Response
 from apps.core.permissions import IsOpsManager
 
 from . import services
-from .models import ServiceableArea
-from .serializers import ServiceableAreaSerializer
+from .models import DeliveryZone, ServiceableArea
+from .serializers import DeliveryZoneSerializer, ServiceableAreaSerializer
+
+
+def _area_payload(area):
+    """Normalise a matched area (drawn zone or pincode area) for the public check."""
+    if area is None:
+        return None
+    if isinstance(area, DeliveryZone):
+        return {
+            "id": area.id,
+            "source": "zone",
+            "name": area.name,
+            "city": area.city,
+            "delivery_eta_minutes": area.delivery_eta_minutes,
+        }
+    return {
+        "id": area.id,
+        "source": "pincode",
+        "name": area.area_name or area.city or area.pincode,
+        "city": area.city,
+        "pincode": area.pincode,
+        "delivery_eta_minutes": area.delivery_eta_minutes,
+    }
 
 
 @api_view(["GET"])
@@ -30,12 +52,7 @@ def check(request):
         return Response({"error": "lat/lng must be numbers."}, status=status.HTTP_400_BAD_REQUEST)
 
     serviceable, area = services.check(pincode, lat_val, lng_val)
-    return Response(
-        {
-            "serviceable": serviceable,
-            "area": ServiceableAreaSerializer(area).data if area else None,
-        }
-    )
+    return Response({"serviceable": serviceable, "area": _area_payload(area)})
 
 
 class ServiceableAreaListCreateView(generics.ListCreateAPIView):
@@ -48,3 +65,17 @@ class ServiceableAreaDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsOpsManager]
     serializer_class = ServiceableAreaSerializer
     queryset = ServiceableArea.objects.all()
+
+
+class DeliveryZoneListCreateView(generics.ListCreateAPIView):
+    """Ops: list and create map-drawn delivery zones (GeoJSON polygons)."""
+
+    permission_classes = [IsOpsManager]
+    serializer_class = DeliveryZoneSerializer
+    queryset = DeliveryZone.objects.all()
+
+
+class DeliveryZoneDetailView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = [IsOpsManager]
+    serializer_class = DeliveryZoneSerializer
+    queryset = DeliveryZone.objects.all()
