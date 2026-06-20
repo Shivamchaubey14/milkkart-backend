@@ -41,10 +41,15 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
 class OrderListSerializer(serializers.ModelSerializer):
     item_count = serializers.IntegerField(source="items.count", read_only=True)
+    item_names = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
-        fields = ["id", "order_number", "status", "total", "item_count", "placed_at"]
+        fields = ["id", "order_number", "status", "total", "item_count", "item_names", "placed_at"]
+
+    def get_item_names(self, obj):
+        # Lightweight preview for list cards (full items are on the detail view).
+        return [i.product_name for i in obj.items.all()[:4]]
 
 
 class OrderDetailSerializer(serializers.ModelSerializer):
