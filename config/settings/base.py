@@ -187,6 +187,10 @@ PAYMENT_WEBHOOK_SECRET = os.environ.get("PAYMENT_WEBHOOK_SECRET", "test_webhook_
 # UPI_VPA to a real registered VPA to receive funds without a payment gateway.
 UPI_VPA = os.environ.get("UPI_VPA", "milkkart@upi")
 UPI_PAYEE_NAME = os.environ.get("UPI_PAYEE_NAME", "MilkKart")
+# Dev/mock only: how long a top-up stays "created" before the status poll
+# simulates the gateway confirming it — long enough to actually scan the QR and
+# pay. Ignored entirely with a real gateway (the webhook decides). 0 = instant.
+WALLET_MOCK_CONFIRM_DELAY_SECONDS = int(os.environ.get("WALLET_MOCK_CONFIRM_DELAY_SECONDS", "25"))
 
 # Cart bill engine (all amounts in INR)
 FREE_DELIVERY_THRESHOLD = Decimal(os.environ.get("FREE_DELIVERY_THRESHOLD", "199"))
