@@ -142,6 +142,10 @@ REST_FRAMEWORK = {
         "anon": "100/hour",
         "user": "1000/hour",
         "otp": "5/hour",
+        # Creating a top-up hits the gateway; cap it. Status polling is cheap and
+        # read-only, so it gets a generous rate for ~2 min of 3s polls per attempt.
+        "topup": "60/hour",
+        "topup_status": "1200/hour",
     },
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
@@ -178,6 +182,11 @@ PAYMENT_GATEWAY_KEY_ID = os.environ.get("PAYMENT_GATEWAY_KEY_ID", "rzp_test_key"
 PAYMENT_GATEWAY_SECRET = os.environ.get("PAYMENT_GATEWAY_SECRET", "test_gateway_secret")
 # Secret for verifying inbound gateway webhooks (distinct from the checkout secret).
 PAYMENT_WEBHOOK_SECRET = os.environ.get("PAYMENT_WEBHOOK_SECRET", "test_webhook_secret")
+
+# Merchant UPI identity for gateway-agnostic intent/QR collect requests. Set
+# UPI_VPA to a real registered VPA to receive funds without a payment gateway.
+UPI_VPA = os.environ.get("UPI_VPA", "milkkart@upi")
+UPI_PAYEE_NAME = os.environ.get("UPI_PAYEE_NAME", "MilkKart")
 
 # Cart bill engine (all amounts in INR)
 FREE_DELIVERY_THRESHOLD = Decimal(os.environ.get("FREE_DELIVERY_THRESHOLD", "199"))

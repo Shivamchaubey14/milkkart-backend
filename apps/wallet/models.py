@@ -76,6 +76,9 @@ class WalletTransaction(models.Model):
     class Meta:
         db_table = "wallet_transactions"
         ordering = ["-created_at"]
+        # The ledger query is "this wallet's transactions, newest first" — a
+        # composite index keeps it fast as the table grows into the millions.
+        indexes = [models.Index(fields=["wallet", "-created_at"], name="wallet_txn_recent_idx")]
 
     def __str__(self):
         return f"{self.type} ₹{self.amount} → ₹{self.balance_after}"
@@ -98,7 +101,8 @@ class WalletTopup(models.Model):
     wallet = models.ForeignKey(Wallet, on_delete=models.CASCADE, related_name="topups")
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.CREATED)
-    gateway_order_id = models.CharField(max_length=100, blank=True)
+    # Reconciliation key shared with the gateway webhook — indexed for lookups.
+    gateway_order_id = models.CharField(max_length=100, blank=True, db_index=True)
     gateway_payment_id = models.CharField(max_length=100, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

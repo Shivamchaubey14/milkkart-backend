@@ -161,3 +161,34 @@ class TestWalletMockPay:
             reverse("wallet-topup-mock-pay"), {"gateway_order_id": "order_nope"}, format="json"
         )
         assert response.status_code == 400
+
+
+@pytest.mark.django_db
+class TestWalletTopupUpi:
+    def test_topup_returns_upi_intent(self, auth_client):
+        created = auth_client.post(reverse("wallet-topup"), {"amount": "250"}).data
+        assert created["status"] == WalletTopup.Status.CREATED
+        upi = created["upi"]
+        assert upi["intent"].startswith("upi://pay?")
+        assert upi["vpa"]  # merchant VPA present
+        # The gateway order id is the reconciliation ref carried in the intent.
+        assert created["gateway"]["order_id"] in upi["intent"]
+
+    def test_status_credits_wallet_with_mock_gateway(self, auth_client, user):
+        created = auth_client.post(reverse("wallet-topup"), {"amount": "400"}).data
+        topup_id = created["topup_id"]
+        response = auth_client.get(reverse("wallet-topup-status", args=[topup_id]))
+        assert response.status_code == 200
+        assert response.data["status"] == WalletTopup.Status.SUCCESS
+        assert Decimal(response.data["wallet"]["balance"]) == Decimal("400.00")
+        # Idempotent: polling again does not double-credit.
+        again = auth_client.get(reverse("wallet-topup-status", args=[topup_id]))
+        assert Decimal(again.data["wallet"]["balance"]) == Decimal("400.00")
+
+    def test_status_other_users_topup_hidden(self, auth_client, user):
+        created = auth_client.post(reverse("wallet-topup"), {"amount": "100"}).data
+        other = User.objects.create_user(phone="+919000000000", name="Other")
+        client = APIClient()
+        client.force_authenticate(user=other)
+        response = client.get(reverse("wallet-topup-status", args=[created["topup_id"]]))
+        assert response.status_code == 404
