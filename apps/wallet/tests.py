@@ -174,7 +174,18 @@ class TestWalletTopupUpi:
         # The gateway order id is the reconciliation ref carried in the intent.
         assert created["gateway"]["order_id"] in upi["intent"]
 
-    def test_status_credits_wallet_with_mock_gateway(self, auth_client, user):
+    def test_status_pending_within_grace_window(self, auth_client, settings):
+        # The mock confirm is delayed so the QR stays scannable — an immediate
+        # poll should still read "created".
+        settings.WALLET_MOCK_CONFIRM_DELAY_SECONDS = 25
+        created = auth_client.post(reverse("wallet-topup"), {"amount": "400"}).data
+        response = auth_client.get(reverse("wallet-topup-status", args=[created["topup_id"]]))
+        assert response.data["status"] == WalletTopup.Status.CREATED
+        assert Decimal(response.data["wallet"]["balance"]) == Decimal("0.00")
+
+    def test_status_credits_wallet_with_mock_gateway(self, auth_client, settings):
+        # No grace delay → the poll confirms immediately.
+        settings.WALLET_MOCK_CONFIRM_DELAY_SECONDS = 0
         created = auth_client.post(reverse("wallet-topup"), {"amount": "400"}).data
         topup_id = created["topup_id"]
         response = auth_client.get(reverse("wallet-topup-status", args=[topup_id]))
