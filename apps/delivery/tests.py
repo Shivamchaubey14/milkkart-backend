@@ -185,6 +185,58 @@ class TestOrderDetailAssignment:
 
 
 @pytest.mark.django_db
+class TestRiderReturn:
+    def _picked_up(self, order, rider, rider_client):
+        from apps.orders.models import OrderItem
+
+        OrderItem.objects.create(order=order, product_name="Milk", product_price=Decimal("40"), quantity=1)
+        OrderItem.objects.create(order=order, product_name="Bread", product_price=Decimal("30"), quantity=2)
+        assign_order(order, rider)
+        rider_client.post(reverse("rider-pickup", kwargs={"order_number": order.order_number}))
+
+    def test_partial_return_trims_bill(self, rider_client, order, rider):
+        self._picked_up(order, rider, rider_client)
+        milk = order.items.get(product_name="Milk")
+        r = rider_client.post(
+            reverse("rider-return", kwargs={"order_number": order.order_number}),
+            {"item_ids": [milk.id], "reason": "refused"},
+            format="json",
+        )
+        assert r.status_code == 200, r.data
+        assert r.data["status"] == "delivered"
+        order.refresh_from_db()
+        milk.refresh_from_db()
+        assert milk.is_returned is True
+        assert order.status == "delivered"
+        assert order.total == Decimal("60.00")  # 100 − 40 refused
+
+    def test_full_return_marks_returned(self, rider_client, order, rider):
+        self._picked_up(order, rider, rider_client)
+        ids = list(order.items.values_list("id", flat=True))
+        r = rider_client.post(
+            reverse("rider-return", kwargs={"order_number": order.order_number}),
+            {"item_ids": ids},
+            format="json",
+        )
+        assert r.status_code == 200, r.data
+        assert r.data["status"] == "returned"
+        order.refresh_from_db()
+        assert order.status == "returned"
+
+    def test_return_before_pickup_rejected(self, rider_client, order, rider):
+        from apps.orders.models import OrderItem
+
+        item = OrderItem.objects.create(order=order, product_name="Milk", product_price=Decimal("40"), quantity=1)
+        assign_order(order, rider)
+        r = rider_client.post(
+            reverse("rider-return", kwargs={"order_number": order.order_number}),
+            {"item_ids": [item.id]},
+            format="json",
+        )
+        assert r.status_code == 400
+
+
+@pytest.mark.django_db
 class TestCreateRiderCommand:
     def test_create_rider(self):
         call_command("create_rider", "--phone=+919000000001")

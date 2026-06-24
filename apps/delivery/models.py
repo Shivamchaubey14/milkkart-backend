@@ -37,6 +37,7 @@ class DeliveryAssignment(models.Model):
         PICKED_UP = "picked_up", "Picked up"
         DELIVERED = "delivered", "Delivered"
         CANCELLED = "cancelled", "Cancelled"
+        RETURNED = "returned", "Returned"
 
     order = models.OneToOneField(
         "orders.Order",
