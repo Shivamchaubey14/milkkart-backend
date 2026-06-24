@@ -51,6 +51,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "custom_days",
             "address_id",
             "preferred_time",
+            "payment_method",
             "status",
             "start_date",
             "daily_cost",

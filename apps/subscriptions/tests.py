@@ -278,6 +278,22 @@ class TestSubscriptionAPI:
         assert response.data["status"] == "active"
         assert response.data["daily_cost"] == "60.00"
 
+    def test_create_cod_payment_method(self, auth_client, variant, address):
+        response = auth_client.post(
+            reverse("subscription-list"),
+            {
+                "variant_id": variant.id,
+                "address_id": address.id,
+                "quantity": 1,
+                "frequency": "daily",
+                "start_date": MONDAY.isoformat(),
+                "payment_method": "cod",
+            },
+            format="json",
+        )
+        assert response.status_code == 201, response.data
+        assert response.data["payment_method"] == "cod"
+
     def test_create_custom_requires_dates(self, auth_client, variant, address):
         response = auth_client.post(
             reverse("subscription-list"),
