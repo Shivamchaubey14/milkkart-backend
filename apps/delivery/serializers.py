@@ -25,6 +25,8 @@ class RiderAssignmentSerializer(serializers.ModelSerializer):
     total = serializers.DecimalField(source="order.total", max_digits=10, decimal_places=2, read_only=True)
     items = OrderItemBriefSerializer(source="order.items", many=True, read_only=True)
     is_cod = serializers.SerializerMethodField()
+    dest_lat = serializers.SerializerMethodField()
+    dest_lng = serializers.SerializerMethodField()
 
     class Meta:
         model = DeliveryAssignment
@@ -36,6 +38,8 @@ class RiderAssignmentSerializer(serializers.ModelSerializer):
             "total",
             "is_cod",
             "items",
+            "dest_lat",
+            "dest_lng",
             "assigned_at",
             "accepted_at",
             "picked_up_at",
@@ -49,6 +53,14 @@ class RiderAssignmentSerializer(serializers.ModelSerializer):
             return obj.order.payment.method == Payment.Method.COD
         except Payment.DoesNotExist:
             return False
+
+    def get_dest_lat(self, obj):
+        a = getattr(obj.order, "address", None)
+        return str(a.latitude) if a and a.latitude is not None else None
+
+    def get_dest_lng(self, obj):
+        a = getattr(obj.order, "address", None)
+        return str(a.longitude) if a and a.longitude is not None else None
 
 
 class ReturnSerializer(serializers.Serializer):
