@@ -16,6 +16,10 @@ class Subscription(models.Model):
         PAUSED = "paused", "Paused"
         CANCELLED = "cancelled", "Cancelled"
 
+    class PaymentMethod(models.TextChoices):
+        WALLET = "wallet", "MilkKart Wallet"
+        COD = "cod", "Cash on Delivery"
+
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -44,6 +48,12 @@ class Subscription(models.Model):
         help_text="Preferred morning delivery time",
     )
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.ACTIVE)
+    payment_method = models.CharField(
+        max_length=10,
+        choices=PaymentMethod.choices,
+        default=PaymentMethod.WALLET,
+        help_text="How each delivery is paid: wallet auto-debit or cash on delivery",
+    )
     start_date = models.DateField()
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
