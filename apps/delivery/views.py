@@ -99,7 +99,13 @@ def rider_day(request):
 def rider_assignments(request):
     assignments = (
         DeliveryAssignment.objects.filter(rider__user=request.user)
-        .exclude(status__in=[DeliveryAssignment.Status.DELIVERED, DeliveryAssignment.Status.CANCELLED])
+        .exclude(
+            status__in=[
+                DeliveryAssignment.Status.DELIVERED,
+                DeliveryAssignment.Status.CANCELLED,
+                DeliveryAssignment.Status.RETURNED,
+            ]
+        )
         .select_related("order")
     )
     return Response(RiderAssignmentSerializer(assignments, many=True).data)

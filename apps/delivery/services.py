@@ -79,7 +79,7 @@ def rider_day_summary(rider, date):
     )
 
     fee = Decimal(settings.DELIVERY_RIDER_FEE)
-    deliveries, delivered, pending = [], 0, 0
+    deliveries, delivered, pending, returned = [], 0, 0, 0
     cod_to_collect, cod_collected = Decimal("0"), Decimal("0")
 
     for a in assignments:
@@ -104,6 +104,9 @@ def rider_day_summary(rider, date):
         if a.status == DeliveryAssignment.Status.DELIVERED:
             delivered += 1
             cod_collected += cod_amount
+        elif a.status == DeliveryAssignment.Status.RETURNED:
+            # Refused/returned — nothing to collect, tracked on its own.
+            returned += 1
         elif a.status != DeliveryAssignment.Status.CANCELLED:
             pending += 1
             cod_to_collect += cod_amount
@@ -115,6 +118,7 @@ def rider_day_summary(rider, date):
             "total": len(deliveries),
             "delivered": delivered,
             "pending": pending,
+            "returned": returned,
             "earnings": str(earnings),
             "rider_fee": str(fee),
             "cod_to_collect": str(cod_to_collect),
