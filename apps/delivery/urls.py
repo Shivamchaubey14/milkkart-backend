@@ -10,4 +10,5 @@ urlpatterns = [
     path("orders/<uuid:order_number>/accept/", views.accept_order, name="rider-accept"),
     path("orders/<uuid:order_number>/pickup/", views.pickup_order, name="rider-pickup"),
     path("orders/<uuid:order_number>/deliver/", views.deliver_order, name="rider-deliver"),
+    path("orders/<uuid:order_number>/return/", views.return_order, name="rider-return"),
 ]

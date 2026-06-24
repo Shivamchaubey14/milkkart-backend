@@ -1,3 +1,6 @@
+from decimal import Decimal
+
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -14,6 +17,7 @@ from .serializers import (
     DeliveryPartnerSerializer,
     DutySerializer,
     LocationSerializer,
+    ReturnSerializer,
     RiderAssignmentSerializer,
 )
 
@@ -161,4 +165,82 @@ def deliver_order(request, order_number):
     order.save(update_fields=["status"])
     send_order_status_update.delay(order.id, Order.Status.DELIVERED)
 
+    return Response(RiderAssignmentSerializer(assignment).data)
+
+
+@api_view(["POST"])
+@permission_classes([IsRider])
+def return_order(request, order_number):
+    """Customer refused some/all items at the door — restock them and (for prepaid
+    orders) refund the refused value to the wallet. No OTP: a refusal won't have one.
+
+    Refusing every line returns the whole order; refusing a subset still delivers
+    the rest and trims the bill (so COD collection reflects what was accepted)."""
+    serializer = ReturnSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    assignment = _assignment_for(request, order_number)
+    if assignment is None:
+        return Response({"error": "Assignment not found."}, status=status.HTTP_404_NOT_FOUND)
+    if assignment.status != DeliveryAssignment.Status.PICKED_UP:
+        return Response({"error": "Order is not out for delivery."}, status=status.HTTP_400_BAD_REQUEST)
+
+    order = assignment.order
+    wanted = set(serializer.validated_data["item_ids"])
+    items = list(order.items.all())
+    open_items = [it for it in items if not it.is_returned]
+    targets = [it for it in open_items if it.id in wanted]
+    if not targets:
+        return Response({"error": "No valid items to return."}, status=status.HTTP_400_BAD_REQUEST)
+
+    from apps.inventory.models import StockMovement
+    from apps.inventory.services import adjust_stock
+    from apps.payments.models import Payment
+    from apps.wallet.models import WalletTransaction, get_or_create_wallet
+
+    returned_amount = sum((it.subtotal for it in targets), Decimal("0"))
+    full_return = len(targets) == len(open_items)
+
+    with transaction.atomic():
+        for it in targets:
+            it.is_returned = True
+            it.save(update_fields=["is_returned"])
+            if it.variant_id:
+                adjust_stock(
+                    it.variant,
+                    it.quantity,
+                    StockMovement.Reason.CANCELLATION,
+                    order=order,
+                    note="Customer refused at door",
+                )
+
+        # Refund only prepaid orders; COD collects nothing for refused items.
+        payment = getattr(order, "payment", None)
+        prepaid = (
+            payment is not None
+            and payment.status == Payment.Status.SUCCESS
+            and payment.method != Payment.Method.COD
+        )
+        if prepaid and returned_amount > 0:
+            get_or_create_wallet(order.user).credit(
+                returned_amount,
+                WalletTransaction.Type.REFUND,
+                description=f"Refund — refused items (order {str(order.order_number)[:8]})",
+                order=order,
+            )
+
+        assignment.delivered_at = timezone.now()
+        if full_return:
+            assignment.status = DeliveryAssignment.Status.RETURNED
+            order.status = Order.Status.RETURNED
+            order.save(update_fields=["status"])
+        else:
+            assignment.status = DeliveryAssignment.Status.DELIVERED
+            order.subtotal = max(Decimal("0"), order.subtotal - returned_amount)
+            order.total = max(Decimal("0"), order.total - returned_amount)
+            order.status = Order.Status.DELIVERED
+            order.save(update_fields=["subtotal", "total", "status"])
+        assignment.save(update_fields=["status", "delivered_at"])
+
+    send_order_status_update.delay(order.id, order.status)
     return Response(RiderAssignmentSerializer(assignment).data)

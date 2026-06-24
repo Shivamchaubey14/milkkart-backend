@@ -35,6 +35,7 @@ class Order(models.Model):
         OUT_FOR_DELIVERY = "out_for_delivery", "Out for Delivery"
         DELIVERED = "delivered", "Delivered"
         CANCELLED = "cancelled", "Cancelled"
+        RETURNED = "returned", "Returned"
 
     order_number = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     user = models.ForeignKey(
@@ -98,6 +99,8 @@ class OrderItem(models.Model):
     variant_label = models.CharField(max_length=100, blank=True, default="")
     product_price = models.DecimalField(max_digits=8, decimal_places=2)
     quantity = models.PositiveIntegerField()
+    # Set when the customer refuses this line at the door; the rider returns it.
+    is_returned = models.BooleanField(default=False)
 
     class Meta:
         db_table = "order_items"
