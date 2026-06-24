@@ -175,12 +175,15 @@ def generate_for_subscription(subscription, date):
                 lock=False,
             )
 
-            wallet = get_or_create_wallet(subscription.user)
-            wallet.debit(
-                total,
-                description=f"Subscription delivery {date.isoformat()}",
-                order=order,
-            )
+            # Wallet subscriptions auto-debit now; COD ones are collected by the
+            # rider on delivery, so no wallet charge (and no low-balance failure).
+            if subscription.payment_method == Subscription.PaymentMethod.WALLET:
+                wallet = get_or_create_wallet(subscription.user)
+                wallet.debit(
+                    total,
+                    description=f"Subscription delivery {date.isoformat()}",
+                    order=order,
+                )
             delivery = _upsert_delivery(
                 subscription,
                 date,
