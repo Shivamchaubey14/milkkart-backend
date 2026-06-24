@@ -26,8 +26,11 @@ def build_upi_uri(amount, ref, note="MilkKart wallet top-up"):
         "am": f"{Decimal(amount):.2f}",
         "cu": "INR",
         "tn": note,
-        "tr": str(ref),
     }
+    # The merchant-style transaction reference (tr) can trip UPI's risk engine
+    # when collecting to a *personal* VPA. Omit it for a plain P2P-style intent.
+    if not getattr(settings, "UPI_INTENT_OMIT_REF", False):
+        params["tr"] = str(ref)
     return "upi://pay?" + urlencode(params)
 
 
