@@ -33,6 +33,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     )
     address_id = serializers.PrimaryKeyRelatedField(source="address", queryset=Address.objects.all())
     product_name = serializers.CharField(source="variant.product.name", read_only=True)
+    image_url = serializers.CharField(source="variant.product.image_url", read_only=True)
     variant_label = serializers.CharField(source="variant.label", read_only=True)
     daily_cost = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
     vacations = SubscriptionVacationSerializer(many=True, read_only=True)
@@ -43,6 +44,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "id",
             "variant_id",
             "product_name",
+            "image_url",
             "variant_label",
             "quantity",
             "frequency",
