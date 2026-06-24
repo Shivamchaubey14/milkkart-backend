@@ -39,3 +39,34 @@ class ServiceableArea(models.Model):
     @property
     def has_geofence(self):
         return None not in (self.center_lat, self.center_lng, self.radius_km)
+
+
+class DeliveryZone(models.Model):
+    """A delivery area drawn on a map (admin dashboard) and stored as GeoJSON.
+
+    Unlike ``ServiceableArea`` (keyed by pincode), a zone is a free-form polygon
+    that can cover a whole region or a small pocket inside a larger one. An
+    address point is serviceable when it falls inside an active zone's polygon;
+    on overlap the higher ``priority`` wins.
+    """
+
+    name = models.CharField(max_length=120)
+    city = models.CharField(max_length=100, blank=True, default="")
+    state = models.CharField(max_length=100, blank=True, default="")
+    # GeoJSON geometry: {"type": "Polygon"|"MultiPolygon", "coordinates": [...]}
+    # with coordinates as [lng, lat] pairs (GeoJSON order).
+    polygon = models.JSONField()
+    is_active = models.BooleanField(default=True)
+    delivery_eta_minutes = models.PositiveIntegerField(null=True, blank=True)
+    priority = models.IntegerField(
+        default=0, help_text="Higher wins when zones overlap (e.g. a small zone over a big one)"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "delivery_zones"
+        ordering = ["-priority", "name"]
+
+    def __str__(self):
+        return f"{self.name} ({'active' if self.is_active else 'inactive'})"

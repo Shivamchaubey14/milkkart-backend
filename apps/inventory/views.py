@@ -29,6 +29,12 @@ class StockMovementListView(generics.ListAPIView):
         reason = self.request.query_params.get("reason")
         if reason:
             qs = qs.filter(reason=reason)
+        start = self.request.query_params.get("start")
+        end = self.request.query_params.get("end")
+        if start:
+            qs = qs.filter(created_at__date__gte=start)
+        if end:
+            qs = qs.filter(created_at__date__lte=end)
         return qs
 
 

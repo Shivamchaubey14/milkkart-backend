@@ -142,6 +142,10 @@ REST_FRAMEWORK = {
         "anon": "100/hour",
         "user": "1000/hour",
         "otp": "5/hour",
+        # Creating a top-up hits the gateway; cap it. Status polling is cheap and
+        # read-only, so it gets a generous rate for ~2 min of 3s polls per attempt.
+        "topup": "60/hour",
+        "topup_status": "1200/hour",
     },
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
@@ -178,6 +182,18 @@ PAYMENT_GATEWAY_KEY_ID = os.environ.get("PAYMENT_GATEWAY_KEY_ID", "rzp_test_key"
 PAYMENT_GATEWAY_SECRET = os.environ.get("PAYMENT_GATEWAY_SECRET", "test_gateway_secret")
 # Secret for verifying inbound gateway webhooks (distinct from the checkout secret).
 PAYMENT_WEBHOOK_SECRET = os.environ.get("PAYMENT_WEBHOOK_SECRET", "test_webhook_secret")
+
+# Merchant UPI identity for gateway-agnostic intent/QR collect requests. Set
+# UPI_VPA to a real registered VPA to receive funds without a payment gateway.
+UPI_VPA = os.environ.get("UPI_VPA", "milkkart@upi")
+UPI_PAYEE_NAME = os.environ.get("UPI_PAYEE_NAME", "MilkKart")
+# Dev/mock only: how long a top-up stays "created" before the status poll
+# simulates the gateway confirming it — long enough to actually scan the QR and
+# pay. Ignored entirely with a real gateway (the webhook decides). 0 = instant.
+WALLET_MOCK_CONFIRM_DELAY_SECONDS = int(os.environ.get("WALLET_MOCK_CONFIRM_DELAY_SECONDS", "25"))
+# Drop the merchant-style tr= reference from the UPI intent. Personal VPAs can
+# get risk-declined when paid with merchant params; set true for plain P2P tests.
+UPI_INTENT_OMIT_REF = os.environ.get("UPI_INTENT_OMIT_REF", "false").lower() == "true"
 
 # Cart bill engine (all amounts in INR)
 FREE_DELIVERY_THRESHOLD = Decimal(os.environ.get("FREE_DELIVERY_THRESHOLD", "199"))

@@ -18,6 +18,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
     # may have been deleted (SET_NULL) or be out of stock, so both are nullable.
     variant_id = serializers.SerializerMethodField()
     variant_in_stock = serializers.SerializerMethodField()
+    image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = OrderItem
@@ -30,6 +31,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
             "subtotal",
             "variant_id",
             "variant_in_stock",
+            "image_url",
         ]
 
     def get_variant_id(self, obj):
@@ -38,13 +40,37 @@ class OrderItemSerializer(serializers.ModelSerializer):
     def get_variant_in_stock(self, obj):
         return bool(obj.variant and obj.variant.stock >= obj.quantity)
 
+    def get_image_url(self, obj):
+        return obj.variant.product.image_url if obj.variant and obj.variant.product else ""
+
 
 class OrderListSerializer(serializers.ModelSerializer):
     item_count = serializers.IntegerField(source="items.count", read_only=True)
+    item_names = serializers.SerializerMethodField()
+    item_images = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
-        fields = ["id", "order_number", "status", "total", "item_count", "placed_at"]
+        fields = [
+            "id",
+            "order_number",
+            "status",
+            "total",
+            "item_count",
+            "item_names",
+            "item_images",
+            "placed_at",
+        ]
+
+    def get_item_names(self, obj):
+        # Lightweight preview for list cards (full items are on the detail view).
+        return [i.product_name for i in obj.items.all()[:4]]
+
+    def get_item_images(self, obj):
+        return [
+            (i.variant.product.image_url if i.variant and i.variant.product else "")
+            for i in obj.items.all()[:4]
+        ]
 
 
 class OrderDetailSerializer(serializers.ModelSerializer):
@@ -94,6 +120,7 @@ class OrderDetailSerializer(serializers.ModelSerializer):
         rider = assignment.rider
         return {
             "status": assignment.status,
+            "rider_name": rider.user.name,
             "rider_phone": rider.user.phone,
             "vehicle_number": rider.vehicle_number,
             "delivery_otp": assignment.delivery_otp,  # shown to the rider on delivery
