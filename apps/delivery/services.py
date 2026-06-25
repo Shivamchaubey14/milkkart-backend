@@ -74,7 +74,7 @@ def rider_day_summary(rider, date):
             | Q(status__in=ACTIVE_STATUSES)
         )
         .select_related("order")
-        .prefetch_related("order__subscription_deliveries")
+        .prefetch_related("order__subscription_deliveries", "order__items__variant__product")
         .distinct()
     )
 
@@ -90,6 +90,7 @@ def rider_day_summary(rider, date):
             is_cod = False
         cod_amount = order.total if is_cod else Decimal("0")
         is_subscription = len(order.subscription_deliveries.all()) > 0
+        items = list(order.items.all())
 
         deliveries.append({
             "order_number": str(order.order_number),
@@ -99,6 +100,20 @@ def rider_day_summary(rider, date):
             "type": "subscription" if is_subscription else "instant",
             "is_cod": is_cod,
             "cod_amount": str(cod_amount),
+            "item_count": len(items),
+            "item_images": [
+                (it.variant.product.image_url if it.variant and it.variant.product else "")
+                for it in items[:4]
+            ],
+            "items": [
+                {
+                    "product_name": it.product_name,
+                    "variant_label": it.variant_label,
+                    "quantity": it.quantity,
+                    "image_url": (it.variant.product.image_url if it.variant and it.variant.product else ""),
+                }
+                for it in items
+            ],
         })
 
         if a.status == DeliveryAssignment.Status.DELIVERED:
