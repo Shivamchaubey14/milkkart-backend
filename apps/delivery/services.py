@@ -107,9 +107,11 @@ def rider_day_summary(rider, date):
             ],
             "items": [
                 {
+                    "id": it.id,
                     "product_name": it.product_name,
                     "variant_label": it.variant_label,
                     "quantity": it.quantity,
+                    "is_returned": it.is_returned,
                     "image_url": (it.variant.product.image_url if it.variant and it.variant.product else ""),
                 }
                 for it in items
