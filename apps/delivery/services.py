@@ -119,10 +119,15 @@ def rider_day_summary(rider, date):
         cod_amount = order.total if is_cod else Decimal("0")
         is_subscription = len(order.subscription_deliveries.all()) > 0
         items = list(order.items.all())
+        addr = getattr(order, "address", None)
+        dest_lat = str(addr.latitude) if addr and addr.latitude is not None else None
+        dest_lng = str(addr.longitude) if addr and addr.longitude is not None else None
 
         deliveries.append({
             "order_number": str(order.order_number),
             "address": order.address_snapshot,
+            "dest_lat": dest_lat,
+            "dest_lng": dest_lng,
             "total": str(order.total),
             "status": a.status,
             "type": "subscription" if is_subscription else "instant",
