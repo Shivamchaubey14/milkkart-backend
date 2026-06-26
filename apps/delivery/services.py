@@ -1,4 +1,5 @@
 import datetime
+import logging
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.conf import settings
@@ -6,6 +7,8 @@ from django.db.models import Count, Q
 from django.utils import timezone
 
 from .models import DeliveryAssignment, DeliveryPartner
+
+logger = logging.getLogger(__name__)
 
 ACTIVE_STATUSES = [
     DeliveryAssignment.Status.ASSIGNED,
@@ -49,7 +52,32 @@ def assign_order(order, rider=None):
         if rider is None:
             raise NoRiderAvailable("No on-duty rider available.")
 
-    return DeliveryAssignment.objects.create(order=order, rider=rider)
+    assignment = DeliveryAssignment.objects.create(order=order, rider=rider)
+    _notify_rider_assigned(assignment)
+    return assignment
+
+
+def _notify_rider_assigned(assignment):
+    """Alert the rider that a new order was assigned — records an in-app
+    notification and fires a push (banner + sound + vibration on the device).
+    Best-effort: a notification failure must never block the assignment."""
+    try:
+        from apps.notifications.models import Category
+        from apps.notifications.services import notify
+
+        order = assignment.order
+        short = str(order.order_number)[:8]
+        address = (order.address_snapshot or "").strip().replace("\n", ", ")
+        notify(
+            assignment.rider.user,
+            Category.ORDER,
+            "New delivery assigned 🛵",
+            f"Order #{short} — {address[:90]}" if address else f"Order #{short} is ready for pickup.",
+            data={"type": "new_assignment", "order_number": str(order.order_number)},
+            channels=("push",),
+        )
+    except Exception:
+        logger.exception("Failed to notify rider of new assignment %s", getattr(assignment, "id", "?"))
 
 
 def rider_day_summary(rider, date):
