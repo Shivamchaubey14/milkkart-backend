@@ -160,7 +160,7 @@ def checkout(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def order_list(request):
-    orders = Order.objects.filter(user=request.user).prefetch_related("items")
+    orders = Order.objects.filter(user=request.user).prefetch_related("items__variant__product__images")
     serializer = OrderListSerializer(orders, many=True)
     return Response(serializer.data)
 
@@ -169,7 +169,7 @@ def order_list(request):
 @permission_classes([IsAuthenticated])
 def order_detail(request, order_number):
     try:
-        order = Order.objects.prefetch_related("items").get(
+        order = Order.objects.prefetch_related("items__variant__product__images").get(
             order_number=order_number, user=request.user
         )
     except Order.DoesNotExist:

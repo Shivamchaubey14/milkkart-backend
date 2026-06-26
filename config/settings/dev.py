@@ -4,6 +4,11 @@ DEBUG = True
 
 ALLOWED_HOSTS = ["*"]
 
+# When reached through an HTTPS tunnel (e.g. ngrok → http runserver), trust the
+# proxy's scheme header so absolute URLs (media/image links) come back as https.
+# Android release builds block cleartext http, so this keeps images loadable.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 # Serve ASGI (Channels/WebSockets) from `runserver` in dev. daphne must come first.
 INSTALLED_APPS = ["daphne", *INSTALLED_APPS]  # noqa: F405
 

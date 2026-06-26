@@ -1,3 +1,5 @@
+from django.conf import settings
+from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 
@@ -28,3 +30,8 @@ urlpatterns = [
     path("api/v1/admin/subscriptions/", include("apps.subscriptions.admin_urls")),
     path("api/v1/admin/", include("apps.delivery.admin_urls")),
 ]
+
+# Serve uploaded media (product images, etc.) from the backend in dev. In
+# production this is fronted by the web server / object storage + CDN.
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

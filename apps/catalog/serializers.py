@@ -3,6 +3,17 @@ from rest_framework import serializers
 from .models import Category, Product, ProductImage, ProductVariant
 
 
+def resolve_image_url(obj, request):
+    """Prefer the first uploaded product image (served by the backend, as an
+    absolute URL) and fall back to the legacy ``image_url`` path for products
+    that haven't been migrated yet."""
+    images = list(obj.images.all())  # prefetched + ordered by sort_order
+    if images and images[0].image:
+        url = images[0].image.url
+        return request.build_absolute_uri(url) if request else url
+    return obj.image_url
+
+
 class CategorySerializer(serializers.ModelSerializer):
     product_count = serializers.IntegerField(read_only=True)
 
@@ -43,6 +54,7 @@ class ProductListSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source="category.name", read_only=True)
     default_variant = serializers.SerializerMethodField()
     variant_count = serializers.SerializerMethodField()
+    image_url = serializers.SerializerMethodField()
     rating_average = serializers.FloatField(read_only=True)
     rating_count = serializers.IntegerField(read_only=True)
 
@@ -69,10 +81,14 @@ class ProductListSerializer(serializers.ModelSerializer):
     def get_variant_count(self, obj):
         return sum(1 for v in obj.variants.all() if v.is_active)
 
+    def get_image_url(self, obj):
+        return resolve_image_url(obj, self.context.get("request"))
+
 
 class ProductDetailSerializer(serializers.ModelSerializer):
     category = CategorySerializer(read_only=True)
     images = ProductImageSerializer(many=True, read_only=True)
+    image_url = serializers.SerializerMethodField()
     variants = serializers.SerializerMethodField()
     rating_average = serializers.FloatField(read_only=True)
     rating_count = serializers.IntegerField(read_only=True)
@@ -98,3 +114,6 @@ class ProductDetailSerializer(serializers.ModelSerializer):
     def get_variants(self, obj):
         active = [v for v in obj.variants.all() if v.is_active]
         return ProductVariantSerializer(active, many=True).data
+
+    def get_image_url(self, obj):
+        return resolve_image_url(obj, self.context.get("request"))
