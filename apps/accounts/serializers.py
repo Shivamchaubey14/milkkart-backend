@@ -18,6 +18,7 @@ class UserSerializer(serializers.Serializer):
     name = serializers.CharField(read_only=True)
     email = serializers.EmailField(read_only=True)
     address = serializers.CharField(read_only=True)
+    avatar = serializers.CharField(read_only=True)
     role = serializers.CharField(read_only=True)
     is_rider = serializers.SerializerMethodField()
     date_joined = serializers.DateTimeField(read_only=True)
@@ -38,9 +39,10 @@ class UserUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=150, required=False, allow_blank=True)
     email = serializers.EmailField(required=False, allow_blank=True)
     address = serializers.CharField(required=False, allow_blank=True)
+    avatar = serializers.CharField(required=False, allow_blank=True)
 
     def update(self, instance, validated_data):
-        changed = [f for f in ("name", "email", "address") if f in validated_data]
+        changed = [f for f in ("name", "email", "address", "avatar") if f in validated_data]
         for field in changed:
             setattr(instance, field, validated_data[field])
         if changed:
