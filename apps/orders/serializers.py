@@ -126,6 +126,9 @@ class OrderDetailSerializer(serializers.ModelSerializer):
             "delivery_otp": assignment.delivery_otp,  # shown to the rider on delivery
             "rider_lat": str(rider.current_lat) if rider.current_lat is not None else None,
             "rider_lng": str(rider.current_lng) if rider.current_lng is not None else None,
+            # Actual handover time — set when the rider completes delivery. Used by
+            # the app's "Delivered" card instead of the order's last-updated stamp.
+            "delivered_at": assignment.delivered_at.isoformat() if assignment.delivered_at else None,
         }
 
 
