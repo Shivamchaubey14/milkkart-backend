@@ -59,7 +59,7 @@ PRODUCTS = [
     ("Beverages", "Lassi", "lassi.png", ML, "lassi yogurt drink",
      [("200 ml", 200, "20", "20", 150), ("400 ml", 400, "35", "35", 120)]),
     ("Beverages", "Chaach (Buttermilk)", "chach.png", ML, "chaach buttermilk masala",
-     [("500 ml", 500, "25", "25", 120)]),
+     [("500 ml", 500, "25", "25", 120), ("200 ml", 200, "10", "10", 100)]),
 
     ("Sweets", "Gulab Jamun", "gulab-jamun.png", G, "gulab jamun sweet dessert",
      [("500 g", 500, "150", "160", 80)]),
