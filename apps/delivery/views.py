@@ -108,6 +108,27 @@ def rider_deliveries(request):
 
 @api_view(["GET"])
 @permission_classes([IsRider])
+def rider_earnings(request):
+    """Earnings breakdown (daily series + per-product) for the Earnings card.
+
+    Optional ?date=YYYY-MM-DD anchors the selected-day figures and chart window.
+    """
+    from .services import rider_earnings_summary
+
+    anchor = None
+    date_param = request.query_params.get("date")
+    if date_param:
+        import datetime
+
+        try:
+            anchor = datetime.date.fromisoformat(date_param)
+        except ValueError:
+            return Response({"error": "Invalid date — use YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+    return Response(rider_earnings_summary(request.user.delivery_partner, request=request, anchor=anchor))
+
+
+@api_view(["GET"])
+@permission_classes([IsRider])
 def rider_assignments(request):
     assignments = (
         DeliveryAssignment.objects.filter(rider__user=request.user)
