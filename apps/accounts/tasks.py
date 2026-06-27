@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 def send_otp_sms(phone, code):
     """Send OTP via SMS. Currently logs to console; plug in SMS provider (Twilio/MSG91) here."""
     logger.info("[SMS] OTP %s sent to %s", code, phone)
-    print("The otp is ", code)
     return {"phone": phone, "status": "sent"}
 
 
