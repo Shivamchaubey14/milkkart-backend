@@ -187,10 +187,6 @@ PAYMENT_WEBHOOK_SECRET = os.environ.get("PAYMENT_WEBHOOK_SECRET", "test_webhook_
 # UPI_VPA to a real registered VPA to receive funds without a payment gateway.
 UPI_VPA = os.environ.get("UPI_VPA", "milkkart@upi")
 UPI_PAYEE_NAME = os.environ.get("UPI_PAYEE_NAME", "MilkKart")
-# Dev/mock only: how long a top-up stays "created" before the status poll
-# simulates the gateway confirming it — long enough to actually scan the QR and
-# pay. Ignored entirely with a real gateway (the webhook decides). 0 = instant.
-WALLET_MOCK_CONFIRM_DELAY_SECONDS = int(os.environ.get("WALLET_MOCK_CONFIRM_DELAY_SECONDS", "25"))
 # Drop the merchant-style tr= reference from the UPI intent. Personal VPAs can
 # get risk-declined when paid with merchant params; set true for plain P2P tests.
 UPI_INTENT_OMIT_REF = os.environ.get("UPI_INTENT_OMIT_REF", "false").lower() == "true"

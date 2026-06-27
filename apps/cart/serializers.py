@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from apps.catalog.models import ProductVariant
+from apps.catalog.serializers import resolve_image_url
 
 from .billing import compute_bill
 from .models import Cart, CartItem
@@ -9,7 +10,7 @@ from .models import Cart, CartItem
 class CartItemSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source="variant.product.name", read_only=True)
     product_slug = serializers.CharField(source="variant.product.slug", read_only=True)
-    image_url = serializers.CharField(source="variant.product.image_url", read_only=True)
+    image_url = serializers.SerializerMethodField()
     variant_label = serializers.CharField(source="variant.label", read_only=True)
     sku = serializers.CharField(source="variant.sku", read_only=True)
     price = serializers.DecimalField(
@@ -32,6 +33,10 @@ class CartItemSerializer(serializers.ModelSerializer):
             "subtotal",
         ]
         read_only_fields = ["variant"]
+
+    def get_image_url(self, obj):
+        product = obj.variant.product if obj.variant else None
+        return resolve_image_url(product, self.context.get("request")) if product else ""
 
 
 class CartSerializer(serializers.ModelSerializer):

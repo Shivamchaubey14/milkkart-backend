@@ -1,14 +1,12 @@
 import uuid
 
-from django.conf import settings
-from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 
-from apps.payments import gateway, services
+from apps.payments import gateway
 from apps.payments.upi import upi_payload
 
 from .models import WalletTopup, WalletTransaction, get_or_create_wallet
@@ -77,27 +75,18 @@ def wallet_topup(request):
 @permission_classes([IsAuthenticated])
 @throttle_classes([_TopupStatusThrottle])
 def wallet_topup_status(request, pk):
-    """Poll a top-up's status — the single source of truth across web/mobile.
+    """Report a top-up's status — read-only, never credits.
 
-    Real gateways confirm asynchronously via the webhook (which credits through
-    ``services.capture``); this endpoint just reports the resulting state. With the
-    mock gateway there is no live webhook, so a poll stands in for the gateway
-    confirming the UPI collect — strictly a dev/demo convenience, never in prod.
+    A wallet is credited ONLY by an authenticated payment confirmation: the
+    gateway webhook or signature verify (``/topup/verify/``) in production, or the
+    explicit dev mock-pay. Polling this endpoint must never move money — otherwise
+    a top-up would credit without the customer actually paying.
     """
     wallet = get_or_create_wallet(request.user)
     try:
         topup = WalletTopup.objects.get(pk=pk, wallet=wallet)
     except WalletTopup.DoesNotExist:
         return Response({"error": "Top-up not found."}, status=status.HTTP_404_NOT_FOUND)
-
-    if topup.status == WalletTopup.Status.CREATED and gateway.provider() == "mock":
-        # Hold off the simulated confirmation so the QR stays scannable long
-        # enough to actually pay; after the grace window, "confirm" it.
-        age = (timezone.now() - topup.created_at).total_seconds()
-        if age >= settings.WALLET_MOCK_CONFIRM_DELAY_SECONDS:
-            services.capture(topup.gateway_order_id, gateway_payment_id="pay_mock_" + uuid.uuid4().hex[:14])
-            topup.refresh_from_db()
-            wallet.refresh_from_db()
 
     return Response(
         {

@@ -91,7 +91,7 @@ def rider_day(request):
             date = datetime.date.fromisoformat(date_param)
         except ValueError:
             return Response({"error": "Invalid date — use YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
-    return Response(rider_day_summary(request.user.delivery_partner, date))
+    return Response(rider_day_summary(request.user.delivery_partner, date, request=request))
 
 
 @api_view(["GET"])
@@ -164,7 +164,8 @@ def deliver_order(request, order_number):
     assignment.status = DeliveryAssignment.Status.DELIVERED
     assignment.delivered_at = timezone.now()
     assignment.proof_photo = serializer.validated_data.get("proof_photo", "")
-    assignment.save(update_fields=["status", "delivered_at", "proof_photo"])
+    assignment.cod_paid_via_upi = serializer.validated_data.get("paid_via_upi", False)
+    assignment.save(update_fields=["status", "delivered_at", "proof_photo", "cod_paid_via_upi"])
 
     order = assignment.order
     order.status = Order.Status.DELIVERED

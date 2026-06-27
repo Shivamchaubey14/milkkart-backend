@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from apps.catalog.serializers import resolve_image_url
+
 from .models import DeliverySlot, Order, OrderItem
 
 
@@ -41,7 +43,8 @@ class OrderItemSerializer(serializers.ModelSerializer):
         return bool(obj.variant and obj.variant.stock >= obj.quantity)
 
     def get_image_url(self, obj):
-        return obj.variant.product.image_url if obj.variant and obj.variant.product else ""
+        product = obj.variant.product if obj.variant else None
+        return resolve_image_url(product, self.context.get("request")) if product else ""
 
 
 class OrderListSerializer(serializers.ModelSerializer):
@@ -67,8 +70,9 @@ class OrderListSerializer(serializers.ModelSerializer):
         return [i.product_name for i in obj.items.all()[:4]]
 
     def get_item_images(self, obj):
+        request = self.context.get("request")
         return [
-            (i.variant.product.image_url if i.variant and i.variant.product else "")
+            (resolve_image_url(i.variant.product, request) if i.variant and i.variant.product else "")
             for i in obj.items.all()[:4]
         ]
 
@@ -126,6 +130,9 @@ class OrderDetailSerializer(serializers.ModelSerializer):
             "delivery_otp": assignment.delivery_otp,  # shown to the rider on delivery
             "rider_lat": str(rider.current_lat) if rider.current_lat is not None else None,
             "rider_lng": str(rider.current_lng) if rider.current_lng is not None else None,
+            # Actual handover time — set when the rider completes delivery. Used by
+            # the app's "Delivered" card instead of the order's last-updated stamp.
+            "delivered_at": assignment.delivered_at.isoformat() if assignment.delivered_at else None,
         }
 
 

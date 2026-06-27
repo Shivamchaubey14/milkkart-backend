@@ -174,27 +174,28 @@ class TestWalletTopupUpi:
         # The gateway order id is the reconciliation ref carried in the intent.
         assert created["gateway"]["order_id"] in upi["intent"]
 
-    def test_status_pending_within_grace_window(self, auth_client, settings):
-        # The mock confirm is delayed so the QR stays scannable — an immediate
-        # poll should still read "created".
-        settings.WALLET_MOCK_CONFIRM_DELAY_SECONDS = 25
-        created = auth_client.post(reverse("wallet-topup"), {"amount": "400"}).data
-        response = auth_client.get(reverse("wallet-topup-status", args=[created["topup_id"]]))
-        assert response.data["status"] == WalletTopup.Status.CREATED
-        assert Decimal(response.data["wallet"]["balance"]) == Decimal("0.00")
-
-    def test_status_credits_wallet_with_mock_gateway(self, auth_client, settings):
-        # No grace delay → the poll confirms immediately.
-        settings.WALLET_MOCK_CONFIRM_DELAY_SECONDS = 0
+    def test_status_is_read_only_never_credits(self, auth_client):
+        # Polling the status must never move money — even repeatedly. A wallet is
+        # credited only by an explicit payment confirmation (verify / mock-pay).
         created = auth_client.post(reverse("wallet-topup"), {"amount": "400"}).data
         topup_id = created["topup_id"]
-        response = auth_client.get(reverse("wallet-topup-status", args=[topup_id]))
-        assert response.status_code == 200
-        assert response.data["status"] == WalletTopup.Status.SUCCESS
-        assert Decimal(response.data["wallet"]["balance"]) == Decimal("400.00")
-        # Idempotent: polling again does not double-credit.
-        again = auth_client.get(reverse("wallet-topup-status", args=[topup_id]))
-        assert Decimal(again.data["wallet"]["balance"]) == Decimal("400.00")
+        for _ in range(3):
+            r = auth_client.get(reverse("wallet-topup-status", args=[topup_id]))
+            assert r.status_code == 200
+            assert r.data["status"] == WalletTopup.Status.CREATED
+            assert Decimal(r.data["wallet"]["balance"]) == Decimal("0.00")
+
+    def test_mock_pay_then_status_reflects_success(self, auth_client):
+        created = auth_client.post(reverse("wallet-topup"), {"amount": "400"}).data
+        order_id = created["gateway"]["order_id"]
+        # Explicit payment confirmation credits the wallet…
+        paid = auth_client.post(reverse("wallet-topup-mock-pay"), {"gateway_order_id": order_id}, format="json")
+        assert paid.status_code == 200
+        assert Decimal(paid.data["balance"]) == Decimal("400.00")
+        # …and the status now reports it (still without re-crediting).
+        r = auth_client.get(reverse("wallet-topup-status", args=[created["topup_id"]]))
+        assert r.data["status"] == WalletTopup.Status.SUCCESS
+        assert Decimal(r.data["wallet"]["balance"]) == Decimal("400.00")
 
     def test_status_other_users_topup_hidden(self, auth_client, user):
         created = auth_client.post(reverse("wallet-topup"), {"amount": "100"}).data

@@ -14,7 +14,7 @@ from .serializers import AddToCartSerializer, CartSerializer, UpdateCartItemSeri
 def _load_cart(user):
     return (
         Cart.objects.select_related("applied_coupon")
-        .prefetch_related("items__variant__product")
+        .prefetch_related("items__variant__product__images")
         .get(user=user)
     )
 
