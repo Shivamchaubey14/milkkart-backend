@@ -104,8 +104,10 @@ def _create_order(subscription, variant, quantity, date):
     """
     from apps.orders.models import Order, OrderItem
 
+    from apps.core.models import StoreConfig
+
     subtotal = _quantize(variant.price * quantity)
-    tax = _quantize(subtotal * settings.TAX_PERCENT / Decimal("100"))
+    tax = _quantize(subtotal * StoreConfig.get_solo().tax_percent / Decimal("100"))
     total = _quantize(subtotal + tax)
 
     order = Order.objects.create(
