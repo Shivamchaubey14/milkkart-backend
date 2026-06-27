@@ -96,6 +96,18 @@ def rider_day(request):
 
 @api_view(["GET"])
 @permission_classes([IsRider])
+def rider_deliveries(request):
+    """Per-status delivery history for the Delivered/Pending/Returned cards."""
+    from .services import rider_deliveries_list
+
+    kind = request.query_params.get("kind", "delivered")
+    if kind not in ("delivered", "pending", "returned"):
+        return Response({"error": "Invalid kind."}, status=status.HTTP_400_BAD_REQUEST)
+    return Response(rider_deliveries_list(request.user.delivery_partner, kind, request=request))
+
+
+@api_view(["GET"])
+@permission_classes([IsRider])
 def rider_assignments(request):
     assignments = (
         DeliveryAssignment.objects.filter(rider__user=request.user)
