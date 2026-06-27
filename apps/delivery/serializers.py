@@ -82,3 +82,5 @@ class LocationSerializer(serializers.Serializer):
 class DeliverSerializer(serializers.Serializer):
     otp = serializers.CharField(max_length=6)
     proof_photo = serializers.CharField(required=False, allow_blank=True, default="")
+    # The rider collected this COD order's amount via the UPI QR (paid to merchant).
+    paid_via_upi = serializers.BooleanField(required=False, default=False)

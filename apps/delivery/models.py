@@ -51,6 +51,9 @@ class DeliveryAssignment(models.Model):
     )
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.ASSIGNED)
     delivery_otp = models.CharField(max_length=6, default=generate_delivery_otp)
+    # True when a COD order's cash was collected via the UPI QR (paid straight to
+    # the merchant) rather than cash-in-hand — surfaced in the rider's COD summary.
+    cod_paid_via_upi = models.BooleanField(default=False)
     proof_photo = models.TextField(blank=True, default="", help_text="Proof photo URL or an uploaded data: URL")
     assigned_at = models.DateTimeField(auto_now_add=True)
     accepted_at = models.DateTimeField(null=True, blank=True)

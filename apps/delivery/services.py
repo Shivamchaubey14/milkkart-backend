@@ -80,14 +80,22 @@ def _notify_rider_assigned(assignment):
         logger.exception("Failed to notify rider of new assignment %s", getattr(assignment, "id", "?"))
 
 
-def rider_day_summary(rider, date):
+def rider_day_summary(rider, date, request=None):
     """A rider's daily delivery list, COD collection summary and earnings (FR-DEL-03).
 
     Includes assignments worked on ``date`` (assigned or delivered that day) plus
     any still-active ones, distinguishing subscription deliveries from instant
     orders and totalling cash-on-delivery to collect vs. already collected.
+
+    ``request`` is used to resolve product image URLs to absolute URLs the app can
+    load (same as the catalog/orders endpoints).
     """
+    from apps.catalog.serializers import resolve_image_url
     from apps.payments.models import Payment
+
+    def product_image(it):
+        product = it.variant.product if it.variant and it.variant.product else None
+        return resolve_image_url(product, request) if product else ""
 
     start = datetime.datetime.combine(date, datetime.time.min)
     end = start + datetime.timedelta(days=1)
@@ -101,14 +109,18 @@ def rider_day_summary(rider, date):
             | Q(delivered_at__gte=start, delivered_at__lt=end)
             | Q(status__in=ACTIVE_STATUSES)
         )
-        .select_related("order")
-        .prefetch_related("order__subscription_deliveries", "order__items__variant__product")
+        .select_related("order", "order__user")
+        .prefetch_related(
+            "order__subscription_deliveries",
+            "order__items__variant__product",
+            "order__items__variant__product__images",
+        )
         .distinct()
     )
 
     fee = Decimal(settings.DELIVERY_RIDER_FEE)
     deliveries, delivered, pending, returned = [], 0, 0, 0
-    cod_to_collect, cod_collected = Decimal("0"), Decimal("0")
+    cod_to_collect, cod_collected, cod_collected_upi = Decimal("0"), Decimal("0"), Decimal("0")
 
     for a in assignments:
         order = a.order
@@ -123,9 +135,13 @@ def rider_day_summary(rider, date):
         dest_lat = str(addr.latitude) if addr and addr.latitude is not None else None
         dest_lng = str(addr.longitude) if addr and addr.longitude is not None else None
 
+        customer = order.user
         deliveries.append({
             "order_number": str(order.order_number),
             "address": order.address_snapshot,
+            "customer_name": (customer.name or "").strip() if customer else "",
+            "customer_phone": customer.phone if customer else "",
+            "customer_avatar": customer.avatar if customer else "",
             "dest_lat": dest_lat,
             "dest_lng": dest_lng,
             "total": str(order.total),
@@ -134,10 +150,7 @@ def rider_day_summary(rider, date):
             "is_cod": is_cod,
             "cod_amount": str(cod_amount),
             "item_count": len(items),
-            "item_images": [
-                (it.variant.product.image_url if it.variant and it.variant.product else "")
-                for it in items[:4]
-            ],
+            "item_images": [product_image(it) for it in items[:4]],
             "items": [
                 {
                     "id": it.id,
@@ -145,7 +158,7 @@ def rider_day_summary(rider, date):
                     "variant_label": it.variant_label,
                     "quantity": it.quantity,
                     "is_returned": it.is_returned,
-                    "image_url": (it.variant.product.image_url if it.variant and it.variant.product else ""),
+                    "image_url": product_image(it),
                 }
                 for it in items
             ],
@@ -154,6 +167,8 @@ def rider_day_summary(rider, date):
         if a.status == DeliveryAssignment.Status.DELIVERED:
             delivered += 1
             cod_collected += cod_amount
+            if is_cod and a.cod_paid_via_upi:
+                cod_collected_upi += cod_amount
         elif a.status == DeliveryAssignment.Status.RETURNED:
             # Refused/returned — nothing to collect, tracked on its own.
             returned += 1
@@ -173,6 +188,8 @@ def rider_day_summary(rider, date):
             "rider_fee": str(fee),
             "cod_to_collect": str(cod_to_collect),
             "cod_collected": str(cod_collected),
+            "cod_collected_upi": str(cod_collected_upi),
+            "cod_collected_cash": str(cod_collected - cod_collected_upi),
         },
         "deliveries": deliveries,
     }
