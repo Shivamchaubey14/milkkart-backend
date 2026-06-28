@@ -34,7 +34,7 @@ PRODUCTS = [
     ("Curd & Yogurt", "Classic Dahi", "dahi-classic.png", G, "curd dahi yogurt",
      [("400 g", 400, "40", "42", 120), ("1 kg", 1000, "85", "90", 80)]),
     ("Curd & Yogurt", "Mishti Doi", "mishti-doi.png", G, "mishti doi sweet curd bengali",
-     [("200 g", 200, "45", "48", 90)]),
+     [("200 g", 200, "45", "48", 90), ("80 g", 80, "10", "10", 100)]),
     ("Curd & Yogurt", "Nutrifit Probiotic Dahi", "dahi-probiotic.png", G, "probiotic dahi curd",
      [("400 g", 400, "50", "52", 80)]),
     ("Curd & Yogurt", "Fruit Yoghurt", "fruit-yoghurt.png", G, "fruit yoghurt",
@@ -59,7 +59,7 @@ PRODUCTS = [
     ("Beverages", "Lassi", "lassi.png", ML, "lassi yogurt drink",
      [("200 ml", 200, "20", "20", 150), ("400 ml", 400, "35", "35", 120)]),
     ("Beverages", "Chaach (Buttermilk)", "chach.png", ML, "chaach buttermilk masala",
-     [("500 ml", 500, "25", "25", 120)]),
+     [("500 ml", 500, "25", "25", 120), ("200 ml", 200, "10", "10", 100)]),
 
     ("Sweets", "Gulab Jamun", "gulab-jamun.png", G, "gulab jamun sweet dessert",
      [("500 g", 500, "150", "160", 80)]),

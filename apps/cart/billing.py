@@ -2,7 +2,7 @@
 
 from decimal import ROUND_HALF_UP, Decimal
 
-from django.conf import settings
+from apps.core.models import StoreConfig
 
 TWO_PLACES = Decimal("0.01")
 
@@ -33,17 +33,18 @@ def compute_bill(cart):
 
     discounted = subtotal - coupon_discount
 
+    cfg = StoreConfig.get_solo()
     if not items:
         delivery_fee = Decimal("0")
         small_cart_fee = Decimal("0")
     else:
         delivery_fee = (
-            Decimal("0") if subtotal >= settings.FREE_DELIVERY_THRESHOLD else settings.DELIVERY_FEE
+            Decimal("0") if subtotal >= cfg.free_delivery_threshold else cfg.delivery_fee
         )
-        small_cart_fee = settings.SMALL_CART_FEE if subtotal < settings.SMALL_CART_THRESHOLD else Decimal("0")
+        small_cart_fee = cfg.small_cart_fee if subtotal < cfg.small_cart_threshold else Decimal("0")
 
     taxable = discounted + delivery_fee + small_cart_fee
-    tax = _q(taxable * settings.TAX_PERCENT / 100)
+    tax = _q(taxable * cfg.tax_percent / 100)
     grand_total = _q(discounted + delivery_fee + small_cart_fee + tax)
 
     return {

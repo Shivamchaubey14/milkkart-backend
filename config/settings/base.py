@@ -25,6 +25,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     # Third-party
     "rest_framework",
+    "drf_spectacular",
     "django_filters",
     "corsheaders",
     "adrf",
@@ -150,6 +151,19 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
     "EXCEPTION_HANDLER": "apps.core.exceptions.custom_exception_handler",
+    # OpenAPI schema generation (drf-spectacular) powers the Swagger / ReDoc docs.
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "MilkKart API",
+    "DESCRIPTION": "MilkKart storefront, rider and operations API (v1).",
+    "VERSION": "1.0.0",
+    # Don't dump the raw schema endpoint into the rendered Swagger/ReDoc page.
+    "SERVE_INCLUDE_SCHEMA": False,
+    # Group endpoints under their /api/v1/<app>/ prefix.
+    "SCHEMA_PATH_PREFIX": "/api/v1",
+    "SWAGGER_UI_SETTINGS": {"persistAuthorization": True},
 }
 
 from datetime import timedelta  # noqa: E402
