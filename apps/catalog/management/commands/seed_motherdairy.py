@@ -34,7 +34,7 @@ PRODUCTS = [
     ("Curd & Yogurt", "Classic Dahi", "dahi-classic.png", G, "curd dahi yogurt",
      [("400 g", 400, "40", "42", 120), ("1 kg", 1000, "85", "90", 80)]),
     ("Curd & Yogurt", "Mishti Doi", "mishti-doi.png", G, "mishti doi sweet curd bengali",
-     [("200 g", 200, "45", "48", 90)]),
+     [("200 g", 200, "45", "48", 90), ("80 g", 80, "10", "10", 100)]),
     ("Curd & Yogurt", "Nutrifit Probiotic Dahi", "dahi-probiotic.png", G, "probiotic dahi curd",
      [("400 g", 400, "50", "52", 80)]),
     ("Curd & Yogurt", "Fruit Yoghurt", "fruit-yoghurt.png", G, "fruit yoghurt",
