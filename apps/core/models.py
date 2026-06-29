@@ -1,5 +1,8 @@
+from datetime import time
+
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class StoreConfig(models.Model):
@@ -31,6 +34,21 @@ class StoreConfig(models.Model):
         max_digits=5, decimal_places=2, default=settings.TAX_PERCENT,
         help_text="Tax percentage applied to the taxable amount. 0 = no tax.",
     )
+    # --- Next-day pre-order window (FR-ORD) -------------------------------
+    # Customers can place orders for next-day delivery only while this daily
+    # window is open. Instant ordering is unaffected and stays available always.
+    next_day_enabled = models.BooleanField(
+        default=False,
+        help_text="Allow customers to pre-order for next-day delivery during the daily window.",
+    )
+    next_day_window_start = models.TimeField(
+        default=time(6, 0),
+        help_text="Time of day the next-day ordering window opens (store local time).",
+    )
+    next_day_window_end = models.TimeField(
+        default=time(10, 0),
+        help_text="Time of day the next-day ordering window closes (store local time).",
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -50,6 +68,21 @@ class StoreConfig(models.Model):
         """The single config row, created from the settings defaults on first use."""
         obj, _ = cls.objects.get_or_create(pk=1)
         return obj
+
+    def next_day_window_open(self, now=None):
+        """True when the next-day pre-order window is currently open.
+
+        Compares the store-local clock time against the configured window. A
+        window whose end is before its start is treated as wrapping past
+        midnight (e.g. 22:00–02:00).
+        """
+        if not self.next_day_enabled:
+            return False
+        current = (now or timezone.localtime()).time()
+        start, end = self.next_day_window_start, self.next_day_window_end
+        if start <= end:
+            return start <= current < end
+        return current >= start or current < end
 
 
 class BulkImport(models.Model):

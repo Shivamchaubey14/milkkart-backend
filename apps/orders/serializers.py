@@ -100,6 +100,8 @@ class OrderDetailSerializer(serializers.ModelSerializer):
             "address_snapshot",
             "destination",
             "delivery_slot",
+            "delivery_type",
+            "delivery_date",
             "notes",
             "items",
             "assignment",
@@ -139,4 +141,9 @@ class OrderDetailSerializer(serializers.ModelSerializer):
 class CheckoutSerializer(serializers.Serializer):
     address_id = serializers.IntegerField()
     delivery_slot_id = serializers.IntegerField(required=False)
+    # "instant" (default) or "next_day" — a pre-order for the next day, only
+    # accepted while the admin's ordering window is open (enforced in the view).
+    delivery_day = serializers.ChoiceField(
+        choices=["instant", "next_day"], required=False, default="instant"
+    )
     notes = serializers.CharField(required=False, default="", allow_blank=True)

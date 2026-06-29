@@ -1,13 +1,17 @@
+from datetime import timedelta
+
 from django.db import models, transaction
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from apps.addresses.models import Address
 from apps.addresses.services import coordinates_for
 from apps.cart.billing import compute_bill
 from apps.cart.models import Cart
+from apps.core.models import StoreConfig
 from apps.inventory.models import StockMovement
 from apps.inventory.services import OutOfStock, adjust_stock
 from apps.promotions.models import Coupon, CouponRedemption
@@ -55,6 +59,24 @@ def checkout(request):
         if delivery_slot.is_full:
             return Response({"error": "Delivery slot is full."}, status=status.HTTP_400_BAD_REQUEST)
 
+    # Delivery timing: instant (default) or a next-day pre-order. Next-day is only
+    # accepted while the admin's ordering window is currently open.
+    delivery_day = serializer.validated_data.get("delivery_day", "instant")
+    delivery_type = Order.DeliveryType.INSTANT
+    delivery_date = timezone.localdate()
+    if delivery_day == "next_day":
+        config = StoreConfig.get_solo()
+        if not config.next_day_window_open():
+            return Response(
+                {
+                    "error": "Next-day ordering is closed right now. Choose instant delivery, "
+                    "or pre-order during the ordering window."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        delivery_type = Order.DeliveryType.NEXT_DAY
+        delivery_date = timezone.localdate() + timedelta(days=1)
+
     try:
         cart = (
             Cart.objects.select_related("applied_coupon")
@@ -97,6 +119,8 @@ def checkout(request):
                 address=address,
                 address_snapshot=address_snapshot,
                 delivery_slot=delivery_slot,
+                delivery_type=delivery_type,
+                delivery_date=delivery_date,
                 notes=serializer.validated_data.get("notes", ""),
             )
 
@@ -202,6 +226,30 @@ def cancel_order(request, order_number):
     send_order_status_update.delay(order.id, Order.Status.CANCELLED)
 
     return Response(OrderDetailSerializer(order).data)
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def order_window(request):
+    """Public status of the next-day pre-order window so the storefront can show
+    whether next-day ordering is available right now (and for which date)."""
+    config = StoreConfig.get_solo()
+    is_open = config.next_day_window_open()
+    response = Response(
+        {
+            "enabled": config.next_day_enabled,
+            "open": is_open,
+            "start": config.next_day_window_start.strftime("%H:%M"),
+            "end": config.next_day_window_end.strftime("%H:%M"),
+            "next_delivery_date": (
+                (timezone.localdate() + timedelta(days=1)).isoformat() if is_open else None
+            ),
+        }
+    )
+    # Never cache: an admin change to the window must be visible immediately on
+    # the next storefront load (browsers/proxies otherwise reuse a stale copy).
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 @api_view(["GET"])
