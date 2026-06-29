@@ -13,12 +13,15 @@ from apps.core.permissions import IsOpsManager
 from apps.delivery.models import DeliveryAssignment, DeliveryPartner
 from apps.delivery.services import NoRiderAvailable, assign_order
 
-from .admin_serializers import AdminOrderSerializer
+from .admin_serializers import AdminOrderDetailSerializer, AdminOrderSerializer
 from .cancellation import CANCELLABLE_STATUSES, perform_cancellation
 from .models import Order
 from .tasks import send_order_status_update
 
 _BOARD_QS = Order.objects.select_related("user", "assignment__rider__user").prefetch_related("items")
+_DETAIL_QS = Order.objects.select_related("user", "coupon", "assignment__rider__user").prefetch_related(
+    "items__variant__product__images"
+)
 
 
 def _get(order_number):
@@ -51,6 +54,15 @@ def _parse_date(value):
         return datetime.strptime(value, "%Y-%m-%d").date()
     except ValueError:
         return None
+
+
+@api_view(["GET"])
+@permission_classes([IsOpsManager])
+def order_detail(request, order_number):
+    order = _DETAIL_QS.filter(order_number=order_number).first()
+    if order is None:
+        return Response({"error": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
+    return Response(AdminOrderDetailSerializer(order, context={"request": request}).data)
 
 
 @api_view(["POST"])
