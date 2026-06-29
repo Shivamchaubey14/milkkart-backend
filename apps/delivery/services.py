@@ -97,14 +97,9 @@ def _delivery_payload(a, request=None):
 
     order = a.order
     try:
-        payment = order.payment
-        is_cod = payment.method == Payment.Method.COD
-        payment_method = payment.method
-        payment_label = payment.get_method_display()
+        is_cod = order.payment.method == Payment.Method.COD
     except Payment.DoesNotExist:
         is_cod = False
-        payment_method = ""
-        payment_label = ""
     cod_amount = order.total if is_cod else Decimal("0")
     is_subscription = len(order.subscription_deliveries.all()) > 0
     items = list(order.items.all())
@@ -134,8 +129,6 @@ def _delivery_payload(a, request=None):
         "delivery_type": order.delivery_type,
         "delivery_date": order.delivery_date.isoformat() if order.delivery_date else None,
         "is_cod": is_cod,
-        "payment_method": payment_method,
-        "payment_label": payment_label,
         "cod_amount": str(cod_amount),
         "item_count": len(items),
         "item_images": [product_image(it) for it in items[:4]],
