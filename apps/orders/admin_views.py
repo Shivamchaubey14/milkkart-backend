@@ -2,6 +2,9 @@
 and assign a rider (manually or auto-suggested). Guarded by the ops/admin role.
 """
 
+from datetime import datetime, time
+
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
@@ -29,13 +32,25 @@ def order_board(request):
     status_filter = request.query_params.get("status")
     if status_filter:
         qs = qs.filter(status=status_filter)
-    start = request.query_params.get("start")
-    end = request.query_params.get("end")
+    # Filter by an explicit timezone-aware datetime range rather than a
+    # ``placed_at__date`` lookup: that lookup relies on the DB time-zone tables
+    # (CONVERT_TZ), which aren't loaded on MySQL here and would match nothing.
+    start = _parse_date(request.query_params.get("start"))
+    end = _parse_date(request.query_params.get("end"))
     if start:
-        qs = qs.filter(placed_at__date__gte=start)
+        qs = qs.filter(placed_at__gte=timezone.make_aware(datetime.combine(start, time.min)))
     if end:
-        qs = qs.filter(placed_at__date__lte=end)
+        qs = qs.filter(placed_at__lte=timezone.make_aware(datetime.combine(end, time.max)))
     return Response(AdminOrderSerializer(qs, many=True).data)
+
+
+def _parse_date(value):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        return None
 
 
 @api_view(["POST"])
