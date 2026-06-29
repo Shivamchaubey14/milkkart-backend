@@ -125,6 +125,9 @@ def _delivery_payload(a, request=None):
         "total": str(order.total),
         "status": a.status,
         "type": "subscription" if is_subscription else "instant",
+        # instant vs next-day pre-order, and the scheduled delivery date (if any)
+        "delivery_type": order.delivery_type,
+        "delivery_date": order.delivery_date.isoformat() if order.delivery_date else None,
         "is_cod": is_cod,
         "cod_amount": str(cod_amount),
         "item_count": len(items),
