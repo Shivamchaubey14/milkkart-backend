@@ -69,12 +69,29 @@ AUTO_ASSIGN_RULES = [
     ("ayodhya h.o", "arjun"),
 ]
 
+# A rider counts as based at the H.O. office when one of their saved addresses
+# mentions it — used to fall back to another on-duty office rider (e.g. Manish)
+# when the designated rider (Arjun) is off duty.
+OFFICE_ADDRESS_HINTS = ["shwetdha", "ayodhya h.o"]
+
+
+def _office_riders():
+    """Active delivery partners based at the H.O. office (by their saved address)."""
+    q = Q()
+    for hint in OFFICE_ADDRESS_HINTS:
+        q |= Q(user__addresses__address_line__icontains=hint)
+    return DeliveryPartner.objects.filter(is_active=True).filter(q).select_related("user").distinct()
+
 
 def maybe_auto_assign(order):
-    """For qualifying instant orders, immediately assign a specific rider so they
-    get the incoming-order alert without an operator assigning from the board.
-    Best-effort — never raises into the checkout path. Returns the assignment or
-    None."""
+    """For qualifying instant orders, immediately assign an H.O.-office rider so
+    they get the incoming-order alert without an operator assigning from the
+    board.
+
+    The designated rider (Arjun) is preferred while on duty; if they're off duty
+    the order goes to another on-duty office rider (e.g. Manish), and only falls
+    back to the off-duty designated rider when nobody is on duty. Best-effort —
+    never raises into the checkout path. Returns the assignment or None."""
     try:
         if order.delivery_type != "instant":
             return None
@@ -82,19 +99,27 @@ def maybe_auto_assign(order):
         for needle, rider_name in AUTO_ASSIGN_RULES:
             if needle not in snapshot:
                 continue
-            rider = (
+            candidates = list(_office_riders())
+            # Always consider the designated rider, even if their own saved
+            # address doesn't happen to mention the office.
+            designated = (
                 DeliveryPartner.objects.select_related("user")
                 .filter(is_active=True, user__name__icontains=rider_name)
                 .first()
             )
-            if rider:
-                return assign_order(order, rider=rider)
-            logger.warning(
-                "Auto-assign: no active rider matching '%s' for order %s",
-                rider_name,
-                order.order_number,
-            )
-            return None
+            if designated and designated.id not in {c.id for c in candidates}:
+                candidates.append(designated)
+            if not candidates:
+                logger.warning("Auto-assign: no office rider available for order %s", order.order_number)
+                return None
+
+            # On-duty riders first; within a duty tier the designated rider wins.
+            def rank(r):
+                is_designated = rider_name in (r.user.name or "").lower()
+                return (0 if r.is_on_duty else 1, 0 if is_designated else 1, r.id)
+
+            rider = sorted(candidates, key=rank)[0]
+            return assign_order(order, rider=rider)
     except Exception:
         logger.exception("Auto-assign failed for order %s", getattr(order, "order_number", "?"))
     return None
