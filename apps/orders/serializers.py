@@ -82,6 +82,9 @@ class OrderDetailSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     delivery_slot = DeliverySlotSerializer(read_only=True)
     coupon_code = serializers.CharField(source="coupon.code", read_only=True, default=None)
+    # Saved-address this order points at, so the app can pre-select it when the
+    # customer changes the delivery address on an editable order.
+    address_id = serializers.IntegerField(read_only=True)
     assignment = serializers.SerializerMethodField()
     destination = serializers.SerializerMethodField()
     # Status used to drive the customer's progress timeline. Mirrors the real
@@ -104,6 +107,7 @@ class OrderDetailSerializer(serializers.ModelSerializer):
             "total",
             "coupon_code",
             "address_snapshot",
+            "address_id",
             "destination",
             "delivery_slot",
             "delivery_type",

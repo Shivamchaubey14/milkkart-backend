@@ -22,6 +22,15 @@ from .models import DeliverySlot, Order, OrderItem
 from .serializers import CheckoutSerializer, DeliverySlotSerializer, OrderDetailSerializer, OrderListSerializer
 from .tasks import send_order_confirmation, send_order_status_update
 
+# Statuses where the customer may still re-point the order at a different saved
+# address — before anyone is out delivering it.
+ADDRESS_EDITABLE_STATUSES = {Order.Status.PENDING, Order.Status.CONFIRMED}
+
+
+def format_address_snapshot(address):
+    """The frozen, human-readable address text stored on the order."""
+    return f"{address.address_line}, {address.landmark}, {address.city}, {address.state} {address.pincode}"
+
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
@@ -99,7 +108,7 @@ def checkout(request):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-    address_snapshot = f"{address.address_line}, {address.landmark}, {address.city}, {address.state} {address.pincode}"
+    address_snapshot = format_address_snapshot(address)
 
     bill = compute_bill(cart)
     # A coupon is only charged if it was still eligible at checkout time.
@@ -224,6 +233,54 @@ def cancel_order(request, order_number):
     if refund_payment_id:
         process_refund.delay(refund_payment_id)
     send_order_status_update.delay(order.id, Order.Status.CANCELLED)
+
+    return Response(OrderDetailSerializer(order).data)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def change_order_address(request, order_number):
+    """Re-point an in-progress order at one of the customer's other saved
+    addresses (Home / Work / …). Allowed only while the order hasn't gone out
+    for delivery, and only to a serviceable address."""
+    try:
+        order = Order.objects.select_related("address").get(
+            order_number=order_number, user=request.user
+        )
+    except Order.DoesNotExist:
+        return Response({"error": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    if order.status not in ADDRESS_EDITABLE_STATUSES:
+        return Response(
+            {"error": f"The delivery address can't be changed once the order is {order.get_status_display().lower()}."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    address_id = request.data.get("address_id")
+    if not address_id:
+        return Response({"error": "address_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        address = Address.objects.get(id=address_id, user=request.user)
+    except Address.DoesNotExist:
+        return Response({"error": "Address not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Backfill coordinates so the serviceability (delivery-zone) check can apply.
+    if address.latitude is None or address.longitude is None:
+        coords = coordinates_for(address)
+        if coords:
+            address.latitude, address.longitude = coords
+            address.save(update_fields=["latitude", "longitude", "updated_at"])
+
+    if not is_serviceable(address):
+        return Response(
+            {"error": "We don't deliver to this address yet."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    order.address = address
+    order.address_snapshot = format_address_snapshot(address)
+    order.save(update_fields=["address", "address_snapshot", "updated_at"])
 
     return Response(OrderDetailSerializer(order).data)
 
