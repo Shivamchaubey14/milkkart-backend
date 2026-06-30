@@ -57,6 +57,46 @@ def assign_order(order, rider=None):
     return assignment
 
 
+# Instant orders whose delivery address contains one of these substrings are
+# auto-assigned to the named rider the moment they're placed — so a known
+# pickup point routes straight to a specific partner without an operator picking
+# from the board. (substring matched case-insensitively against the address; the
+# rider is matched by name.)
+AUTO_ASSIGN_RULES = [
+    ("shwetdhara", "arjun"),
+]
+
+
+def maybe_auto_assign(order):
+    """For qualifying instant orders, immediately assign a specific rider so they
+    get the incoming-order alert without an operator assigning from the board.
+    Best-effort — never raises into the checkout path. Returns the assignment or
+    None."""
+    try:
+        if order.delivery_type != "instant":
+            return None
+        snapshot = (order.address_snapshot or "").lower()
+        for needle, rider_name in AUTO_ASSIGN_RULES:
+            if needle not in snapshot:
+                continue
+            rider = (
+                DeliveryPartner.objects.select_related("user")
+                .filter(is_active=True, user__name__icontains=rider_name)
+                .first()
+            )
+            if rider:
+                return assign_order(order, rider=rider)
+            logger.warning(
+                "Auto-assign: no active rider matching '%s' for order %s",
+                rider_name,
+                order.order_number,
+            )
+            return None
+    except Exception:
+        logger.exception("Auto-assign failed for order %s", getattr(order, "order_number", "?"))
+    return None
+
+
 def _notify_rider_assigned(assignment):
     """Alert the rider that a new order was assigned — records an in-app
     notification and fires a push (banner + sound + vibration on the device).

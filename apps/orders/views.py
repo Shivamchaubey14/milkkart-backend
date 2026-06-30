@@ -20,7 +20,7 @@ from apps.serviceability.services import is_serviceable
 from .cancellation import CANCELLABLE_STATUSES, perform_cancellation
 from .models import DeliverySlot, Order, OrderItem
 from .serializers import CheckoutSerializer, DeliverySlotSerializer, OrderDetailSerializer, OrderListSerializer
-from .tasks import send_order_confirmation, send_order_status_update
+from .tasks import auto_assign_order, send_order_confirmation, send_order_status_update
 
 # Statuses where the customer may still re-point the order at a different saved
 # address — before anyone is out delivering it.
@@ -183,6 +183,9 @@ def checkout(request):
         )
 
     send_order_confirmation.delay(order.id)
+    # Qualifying instant orders (e.g. from a known pickup point) route straight to
+    # their designated rider, who gets the incoming-order alert immediately.
+    auto_assign_order.delay(order.id)
 
     return Response(
         OrderDetailSerializer(order).data,

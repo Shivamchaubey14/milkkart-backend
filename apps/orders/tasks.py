@@ -47,6 +47,22 @@ def send_order_confirmation(order_id):
 
 
 @shared_task
+def auto_assign_order(order_id):
+    """Route a qualifying instant order straight to its designated rider (and fire
+    the incoming-order push) without an operator assigning it from the board."""
+    from apps.delivery.services import maybe_auto_assign
+
+    from .models import Order
+
+    try:
+        order = Order.objects.select_related("address").get(id=order_id)
+    except Order.DoesNotExist:
+        logger.error("Order %s not found for auto-assign", order_id)
+        return
+    maybe_auto_assign(order)
+
+
+@shared_task
 def send_order_status_update(order_id, new_status):
     """Notify the customer of an order status change (in-app + push/SMS + WebSocket)."""
     from .models import Order
