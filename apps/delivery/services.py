@@ -63,7 +63,10 @@ def assign_order(order, rider=None):
 # from the board. (substring matched case-insensitively against the address; the
 # rider is matched by name.)
 AUTO_ASSIGN_RULES = [
-    ("shwetdhara", "arjun"),
+    # "shwetdha" catches both spellings of the company HQ ("Shwetdhara" /
+    # "Shwetdhaara Milk Producer Organisation"); Ayodhya H.O. is the same place.
+    ("shwetdha", "arjun"),
+    ("ayodhya h.o", "arjun"),
 ]
 
 
