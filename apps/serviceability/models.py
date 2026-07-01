@@ -70,3 +70,30 @@ class DeliveryZone(models.Model):
 
     def __str__(self):
         return f"{self.name} ({'active' if self.is_active else 'inactive'})"
+
+
+class WaitlistEntry(models.Model):
+    """A customer who asked to be notified when we start delivering to their area.
+
+    Captured from the "We're not in your area yet" screen (mobile/web): a phone
+    number tied to the pincode they were interested in. One row per
+    (phone, pincode) — asking again just refreshes the same entry.
+    """
+
+    phone = models.CharField(max_length=20, db_index=True)
+    pincode = models.CharField(max_length=10, db_index=True)
+    city = models.CharField(max_length=120, blank=True, default="")
+    notified = models.BooleanField(
+        default=False, help_text="Set once we've told them their area went live"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "serviceability_waitlist"
+        ordering = ["-created_at"]
+        unique_together = ("phone", "pincode")
+        verbose_name_plural = "Waitlist entries"
+
+    def __str__(self):
+        return f"{self.phone} @ {self.pincode}"
