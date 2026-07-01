@@ -1,6 +1,8 @@
+import re
+
 from rest_framework import serializers
 
-from .models import DeliveryZone, ServiceableArea
+from .models import DeliveryZone, ServiceableArea, WaitlistEntry
 
 
 class DeliveryZoneSerializer(serializers.ModelSerializer):
@@ -57,3 +59,26 @@ class ServiceableAreaSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class WaitlistEntrySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WaitlistEntry
+        fields = ["id", "phone", "pincode", "city", "created_at"]
+        read_only_fields = ["id", "created_at"]
+        # Drop the auto (phone, pincode) UniqueTogetherValidator — re-joining is
+        # meant to be idempotent, handled by update_or_create in the view.
+        validators = []
+
+    def validate_phone(self, value):
+        phone = re.sub(r"[\s\-()]", "", value or "")
+        # E.164-ish: optional leading +, then 8–15 digits.
+        if not re.fullmatch(r"\+?\d{8,15}", phone):
+            raise serializers.ValidationError("Enter a valid mobile number.")
+        return phone
+
+    def validate_pincode(self, value):
+        pincode = (value or "").strip()
+        if not re.fullmatch(r"\d{4,10}", pincode):
+            raise serializers.ValidationError("Enter a valid pincode.")
+        return pincode
