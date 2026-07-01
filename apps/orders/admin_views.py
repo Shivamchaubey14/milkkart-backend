@@ -2,6 +2,9 @@
 and assign a rider (manually or auto-suggested). Guarded by the ops/admin role.
 """
 
+from datetime import datetime, time
+
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
@@ -10,12 +13,15 @@ from apps.core.permissions import IsOpsManager
 from apps.delivery.models import DeliveryAssignment, DeliveryPartner
 from apps.delivery.services import NoRiderAvailable, assign_order
 
-from .admin_serializers import AdminOrderSerializer
+from .admin_serializers import AdminOrderDetailSerializer, AdminOrderSerializer
 from .cancellation import CANCELLABLE_STATUSES, perform_cancellation
 from .models import Order
 from .tasks import send_order_status_update
 
 _BOARD_QS = Order.objects.select_related("user", "assignment__rider__user").prefetch_related("items")
+_DETAIL_QS = Order.objects.select_related("user", "coupon", "assignment__rider__user").prefetch_related(
+    "items__variant__product__images"
+)
 
 
 def _get(order_number):
@@ -29,13 +35,34 @@ def order_board(request):
     status_filter = request.query_params.get("status")
     if status_filter:
         qs = qs.filter(status=status_filter)
-    start = request.query_params.get("start")
-    end = request.query_params.get("end")
+    # Filter by an explicit timezone-aware datetime range rather than a
+    # ``placed_at__date`` lookup: that lookup relies on the DB time-zone tables
+    # (CONVERT_TZ), which aren't loaded on MySQL here and would match nothing.
+    start = _parse_date(request.query_params.get("start"))
+    end = _parse_date(request.query_params.get("end"))
     if start:
-        qs = qs.filter(placed_at__date__gte=start)
+        qs = qs.filter(placed_at__gte=timezone.make_aware(datetime.combine(start, time.min)))
     if end:
-        qs = qs.filter(placed_at__date__lte=end)
+        qs = qs.filter(placed_at__lte=timezone.make_aware(datetime.combine(end, time.max)))
     return Response(AdminOrderSerializer(qs, many=True).data)
+
+
+def _parse_date(value):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+@api_view(["GET"])
+@permission_classes([IsOpsManager])
+def order_detail(request, order_number):
+    order = _DETAIL_QS.filter(order_number=order_number).first()
+    if order is None:
+        return Response({"error": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
+    return Response(AdminOrderDetailSerializer(order, context={"request": request}).data)
 
 
 @api_view(["POST"])

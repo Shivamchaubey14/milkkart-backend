@@ -57,6 +57,74 @@ def assign_order(order, rider=None):
     return assignment
 
 
+# Instant orders whose delivery address contains one of these substrings are
+# auto-assigned to the named rider the moment they're placed — so a known
+# pickup point routes straight to a specific partner without an operator picking
+# from the board. (substring matched case-insensitively against the address; the
+# rider is matched by name.)
+AUTO_ASSIGN_RULES = [
+    # "shwetdha" catches both spellings of the company HQ ("Shwetdhara" /
+    # "Shwetdhaara Milk Producer Organisation"); Ayodhya H.O. is the same place.
+    ("shwetdha", "arjun"),
+    ("ayodhya h.o", "arjun"),
+]
+
+# A rider counts as based at the H.O. office when one of their saved addresses
+# mentions it — used to fall back to another on-duty office rider (e.g. Manish)
+# when the designated rider (Arjun) is off duty.
+OFFICE_ADDRESS_HINTS = ["shwetdha", "ayodhya h.o"]
+
+
+def _office_riders():
+    """Active delivery partners based at the H.O. office (by their saved address)."""
+    q = Q()
+    for hint in OFFICE_ADDRESS_HINTS:
+        q |= Q(user__addresses__address_line__icontains=hint)
+    return DeliveryPartner.objects.filter(is_active=True).filter(q).select_related("user").distinct()
+
+
+def maybe_auto_assign(order):
+    """For qualifying instant orders, immediately assign an H.O.-office rider so
+    they get the incoming-order alert without an operator assigning from the
+    board.
+
+    The designated rider (Arjun) is preferred while on duty; if they're off duty
+    the order goes to another on-duty office rider (e.g. Manish), and only falls
+    back to the off-duty designated rider when nobody is on duty. Best-effort —
+    never raises into the checkout path. Returns the assignment or None."""
+    try:
+        if order.delivery_type != "instant":
+            return None
+        snapshot = (order.address_snapshot or "").lower()
+        for needle, rider_name in AUTO_ASSIGN_RULES:
+            if needle not in snapshot:
+                continue
+            candidates = list(_office_riders())
+            # Always consider the designated rider, even if their own saved
+            # address doesn't happen to mention the office.
+            designated = (
+                DeliveryPartner.objects.select_related("user")
+                .filter(is_active=True, user__name__icontains=rider_name)
+                .first()
+            )
+            if designated and designated.id not in {c.id for c in candidates}:
+                candidates.append(designated)
+            if not candidates:
+                logger.warning("Auto-assign: no office rider available for order %s", order.order_number)
+                return None
+
+            # On-duty riders first; within a duty tier the designated rider wins.
+            def rank(r):
+                is_designated = rider_name in (r.user.name or "").lower()
+                return (0 if r.is_on_duty else 1, 0 if is_designated else 1, r.id)
+
+            rider = sorted(candidates, key=rank)[0]
+            return assign_order(order, rider=rider)
+    except Exception:
+        logger.exception("Auto-assign failed for order %s", getattr(order, "order_number", "?"))
+    return None
+
+
 def _notify_rider_assigned(assignment):
     """Alert the rider that a new order was assigned — records an in-app
     notification and fires a push (banner + sound + vibration on the device).
@@ -125,6 +193,9 @@ def _delivery_payload(a, request=None):
         "total": str(order.total),
         "status": a.status,
         "type": "subscription" if is_subscription else "instant",
+        # instant vs next-day pre-order, and the scheduled delivery date (if any)
+        "delivery_type": order.delivery_type,
+        "delivery_date": order.delivery_date.isoformat() if order.delivery_date else None,
         "is_cod": is_cod,
         "cod_amount": str(cod_amount),
         "item_count": len(items),

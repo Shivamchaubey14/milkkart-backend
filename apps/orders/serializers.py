@@ -1,3 +1,4 @@
+from django.utils import timezone
 from rest_framework import serializers
 
 from apps.catalog.serializers import resolve_image_url
@@ -81,8 +82,16 @@ class OrderDetailSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     delivery_slot = DeliverySlotSerializer(read_only=True)
     coupon_code = serializers.CharField(source="coupon.code", read_only=True, default=None)
+    # Saved-address this order points at, so the app can pre-select it when the
+    # customer changes the delivery address on an editable order.
+    address_id = serializers.IntegerField(read_only=True)
     assignment = serializers.SerializerMethodField()
     destination = serializers.SerializerMethodField()
+    # Status used to drive the customer's progress timeline. Mirrors the real
+    # status except for next-day pre-orders, which show "Confirmed" on placement
+    # and auto-advance to "Packed" (confirmed) on their delivery day — without an
+    # operator having to touch them.
+    timeline_status = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
@@ -98,14 +107,28 @@ class OrderDetailSerializer(serializers.ModelSerializer):
             "total",
             "coupon_code",
             "address_snapshot",
+            "address_id",
             "destination",
             "delivery_slot",
+            "delivery_type",
+            "delivery_date",
+            "timeline_status",
             "notes",
             "items",
             "assignment",
             "placed_at",
             "updated_at",
         ]
+
+    def get_timeline_status(self, obj):
+        if (
+            obj.delivery_type == Order.DeliveryType.NEXT_DAY
+            and obj.status == Order.Status.PENDING
+            and obj.delivery_date
+            and timezone.localdate() >= obj.delivery_date
+        ):
+            return Order.Status.CONFIRMED
+        return obj.status
 
     def get_destination(self, obj):
         """Delivery address coordinates for live-tracking the rider, when known."""
@@ -139,4 +162,9 @@ class OrderDetailSerializer(serializers.ModelSerializer):
 class CheckoutSerializer(serializers.Serializer):
     address_id = serializers.IntegerField()
     delivery_slot_id = serializers.IntegerField(required=False)
+    # "instant" (default) or "next_day" — a pre-order for the next day, only
+    # accepted while the admin's ordering window is open (enforced in the view).
+    delivery_day = serializers.ChoiceField(
+        choices=["instant", "next_day"], required=False, default="instant"
+    )
     notes = serializers.CharField(required=False, default="", allow_blank=True)

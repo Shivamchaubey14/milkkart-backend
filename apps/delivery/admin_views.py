@@ -39,6 +39,39 @@ def riders_board(request):
     return Response([_serialize(r, r.load) for r in riders])
 
 
+@api_view(["PATCH"])
+@permission_classes([IsOpsManager])
+def rider_detail(request, pk):
+    """Edit a delivery partner: their profile (name/email/address) and partner
+    fields (vehicle_number, is_active)."""
+    rider = DeliveryPartner.objects.select_related("user").filter(id=pk).first()
+    if rider is None:
+        return Response({"error": "Rider not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    data = request.data
+    user = rider.user
+    user_changed = []
+    for field in ("name", "email", "address"):
+        if field in data and data.get(field) is not None:
+            setattr(user, field, str(data.get(field)).strip())
+            user_changed.append(field)
+    if user_changed:
+        user.save(update_fields=user_changed)
+
+    partner_changed = []
+    if "vehicle_number" in data:
+        rider.vehicle_number = (data.get("vehicle_number") or "").strip()
+        partner_changed.append("vehicle_number")
+    if "is_active" in data:
+        rider.is_active = bool(data.get("is_active"))
+        partner_changed.append("is_active")
+    if partner_changed:
+        rider.save(update_fields=partner_changed + ["updated_at"])
+
+    fresh = riders_with_load(active_only=False).filter(id=pk).first()
+    return Response(_serialize(fresh, getattr(fresh, "load", 0)))
+
+
 def _create_rider(request):
     """Onboard a delivery partner: find-or-create the user by phone, fill in
     their profile, and attach a DeliveryPartner profile."""

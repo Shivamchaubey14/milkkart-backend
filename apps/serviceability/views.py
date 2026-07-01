@@ -6,8 +6,12 @@ from rest_framework.response import Response
 from apps.core.permissions import IsOpsManager
 
 from . import services
-from .models import DeliveryZone, ServiceableArea
-from .serializers import DeliveryZoneSerializer, ServiceableAreaSerializer
+from .models import DeliveryZone, ServiceableArea, WaitlistEntry
+from .serializers import (
+    DeliveryZoneSerializer,
+    ServiceableAreaSerializer,
+    WaitlistEntrySerializer,
+)
 
 
 def _area_payload(area):
@@ -53,6 +57,27 @@ def check(request):
 
     serviceable, area = services.check(pincode, lat_val, lng_val)
     return Response({"serviceable": serviceable, "area": _area_payload(area)})
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def waitlist(request):
+    """Public: join the "notify me when you deliver here" waitlist.
+
+    Idempotent per (phone, pincode) — asking again refreshes the same row rather
+    than creating duplicates.
+    """
+    serializer = WaitlistEntrySerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    data = serializer.validated_data
+    entry, _created = WaitlistEntry.objects.update_or_create(
+        phone=data["phone"],
+        pincode=data["pincode"],
+        defaults={"city": data.get("city", "")},
+    )
+    return Response(
+        WaitlistEntrySerializer(entry).data, status=status.HTTP_201_CREATED
+    )
 
 
 class ServiceableAreaListCreateView(generics.ListCreateAPIView):

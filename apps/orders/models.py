@@ -37,6 +37,10 @@ class Order(models.Model):
         CANCELLED = "cancelled", "Cancelled"
         RETURNED = "returned", "Returned"
 
+    class DeliveryType(models.TextChoices):
+        INSTANT = "instant", "Instant"
+        NEXT_DAY = "next_day", "Next day"
+
     order_number = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -74,6 +78,17 @@ class Order(models.Model):
         null=True,
         blank=True,
         related_name="orders",
+    )
+    delivery_type = models.CharField(
+        max_length=10,
+        choices=DeliveryType.choices,
+        default=DeliveryType.INSTANT,
+        help_text="Instant (same-day) or a next-day pre-order placed during the ordering window.",
+    )
+    delivery_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Target delivery date. Set to the next day for next-day pre-orders.",
     )
     notes = models.TextField(blank=True)
     placed_at = models.DateTimeField(auto_now_add=True)
