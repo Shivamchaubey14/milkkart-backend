@@ -1,4 +1,5 @@
 import random
+import re
 import string
 
 from django.conf import settings
@@ -11,6 +12,16 @@ phone_validator = RegexValidator(
     regex=r"^\+?1?\d{9,15}$",
     message="Phone number must be 9-15 digits, optionally starting with '+'.",
 )
+
+
+def normalize_phone(raw):
+    """Canonical form for a phone number, so "9876543210", "919876543210" and
+    "+919876543210" all resolve to the same account. Bare 10-digit numbers are
+    assumed to be Indian (+91)."""
+    digits = re.sub(r"\D", "", raw or "")
+    if len(digits) == 10:
+        return "+91" + digits
+    return "+" + digits
 
 
 class UserManager(BaseUserManager):
