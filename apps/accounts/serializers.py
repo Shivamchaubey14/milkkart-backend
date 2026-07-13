@@ -1,15 +1,21 @@
 from rest_framework import serializers
 
-from .models import phone_validator
+from .models import normalize_phone, phone_validator
 
 
 class SendOTPSerializer(serializers.Serializer):
     phone = serializers.CharField(max_length=17, validators=[phone_validator])
 
+    def validate_phone(self, value):
+        return normalize_phone(value)
+
 
 class VerifyOTPSerializer(serializers.Serializer):
     phone = serializers.CharField(max_length=17, validators=[phone_validator])
     code = serializers.CharField(max_length=6, min_length=6)
+
+    def validate_phone(self, value):
+        return normalize_phone(value)
 
 
 class UserSerializer(serializers.Serializer):
