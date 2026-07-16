@@ -16,6 +16,23 @@ services:
       redis:
         condition: service_healthy
 
+  celery:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    command: celery -A config worker -l info
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.prod
+    volumes:
+      - media_data:/app/media
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   mysql:
     image: mysql:8.0
     restart: unless-stopped
