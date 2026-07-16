@@ -1,0 +1,99 @@
+# Windows self-host variant: same production stack as docker-compose.prod.yml,
+# but WITHOUT a mysql container — Django uses the MySQL already installed on the
+# Windows host, reached via host.docker.internal — and exposed to the internet
+# through a Cloudflare Tunnel (works behind CGNAT; no router port forwarding).
+#
+# Required .env additions compared to the VPS setup:
+#   MYSQL_HOST=host.docker.internal
+#   CLOUDFLARE_TUNNEL_TOKEN=<token from Cloudflare Zero Trust -> Tunnels>
+#
+# Usage (from milkkart-backend, with ../milkkart-web checked out alongside):
+#   docker compose -f docker-compose.windows.yml up -d --build
+#   docker compose -f docker-compose.windows.yml exec django python manage.py migrate
+#   docker compose -f docker-compose.windows.yml exec django python manage.py collectstatic --noinput
+
+services:
+  django:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.prod
+    volumes:
+      - static_data:/app/staticfiles
+      - media_data:/app/media
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  celery:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    command: celery -A config worker -l info
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.prod
+    volumes:
+      - media_data:/app/media
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  celery-beat:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    command: celery -A config beat -l info
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.prod
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    # No published ports: only cloudflared talks to Caddy, over the Docker network.
+    volumes:
+      - ./Caddyfile.tunnel:/etc/caddy/Caddyfile:ro
+      - static_data:/srv/static:ro
+      - media_data:/srv/media:ro
+      # Web storefront (static, no build step) served from a sibling checkout.
+      - ../milkkart-web:/srv/web:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - django
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - caddy
+
+volumes:
+  redis_data:
+  static_data:
+  media_data:
+  caddy_data:
+  caddy_config:
