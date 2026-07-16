@@ -1,0 +1,25 @@
+# Caddy obtains and renews Let's Encrypt certificates automatically for every
+# site block below, and proxies websockets without extra config.
+# prod.py already trusts X-Forwarded-Proto (SECURE_PROXY_SSL_HEADER), which
+# Caddy sets on proxied requests.
+
+api.shwetdharamilk.com {
+	handle_path /static/* {
+		root * /srv/static
+		file_server
+	}
+	handle_path /media/* {
+		root * /srv/media
+		file_server
+	}
+	reverse_proxy django:8000
+}
+
+www.shwetdharamilk.com {
+	root * /srv/web
+	file_server
+}
+
+shwetdharamilk.com {
+	redir https://www.shwetdharamilk.com{uri} permanent
+}
