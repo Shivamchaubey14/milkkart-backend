@@ -1,3 +1,11 @@
+# Production stack: Caddy (HTTPS) -> Django ASGI, plus Celery worker/beat.
+# MySQL and Redis are reachable only on the internal Docker network.
+#
+# Usage (on the server, alongside a sibling ../milkkart-web checkout):
+#   docker compose -f docker-compose.prod.yml up -d --build
+#   docker compose -f docker-compose.prod.yml exec django python manage.py migrate
+#   docker compose -f docker-compose.prod.yml exec django python manage.py collectstatic --noinput
+
 services:
   django:
     build:
