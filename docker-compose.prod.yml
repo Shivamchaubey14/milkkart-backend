@@ -79,8 +79,25 @@ services:
       timeout: 5s
       retries: 5
 
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - static_data:/srv/static:ro
+      - media_data:/srv/media:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - django
+
 volumes:
   mysql_data:
   redis_data:
   static_data:
   media_data:
+  caddy_data:
+  caddy_config:
