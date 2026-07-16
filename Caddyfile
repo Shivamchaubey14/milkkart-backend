@@ -14,3 +14,12 @@ api.shwetdharamilk.com {
 	}
 	reverse_proxy django:8000
 }
+
+www.shwetdharamilk.com {
+	root * /srv/web
+	file_server
+}
+
+shwetdharamilk.com {
+	redir https://www.shwetdharamilk.com{uri} permanent
+}

@@ -89,6 +89,8 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - static_data:/srv/static:ro
       - media_data:/srv/media:ro
+      # Web storefront (static, no build step) served from a sibling checkout.
+      - ../milkkart-web:/srv/web:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
